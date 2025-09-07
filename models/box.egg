@@ -1,0 +1,19 @@
+<CoordinateSystem> { Z-up }
+<Group> Cube {
+  <VertexPool> v {
+    <Vertex> 0 { -0.5 -0.5 -0.5 <UV> { 0 0 } }
+    <Vertex> 1 {  0.5 -0.5 -0.5 <UV> { 1 0 } }
+    <Vertex> 2 {  0.5  0.5 -0.5 <UV> { 1 1 } }
+    <Vertex> 3 { -0.5  0.5 -0.5 <UV> { 0 1 } }
+    <Vertex> 4 { -0.5 -0.5  0.5 <UV> { 0 0 } }
+    <Vertex> 5 {  0.5 -0.5  0.5 <UV> { 1 0 } }
+    <Vertex> 6 {  0.5  0.5  0.5 <UV> { 1 1 } }
+    <Vertex> 7 { -0.5  0.5  0.5 <UV> { 0 1 } }
+  }
+  <Polygon> { <Normal> { 0  0 -1 } <VertexRef> { 0 1 2 3 <Ref> { v } } }
+  <Polygon> { <Normal> { 0  0  1 } <VertexRef> { 4 5 6 7 <Ref> { v } } }
+  <Polygon> { <Normal> { 0 -1  0 } <VertexRef> { 0 1 5 4 <Ref> { v } } }
+  <Polygon> { <Normal> { 0  1  0 } <VertexRef> { 3 2 6 7 <Ref> { v } } }
+  <Polygon> { <Normal> {-1  0  0 } <VertexRef> { 0 3 7 4 <Ref> { v } } }
+  <Polygon> { <Normal> { 1  0  0 } <VertexRef> { 1 2 6 5 <Ref> { v } } }
+}
