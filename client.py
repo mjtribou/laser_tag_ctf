@@ -4,8 +4,9 @@ from typing import Dict, Any, List, Tuple
 from bisect import bisect, bisect_right
 
 from direct.showbase.ShowBase import ShowBase
+from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f, KeyboardButton, WindowProperties
-from panda3d.core import LColor, MouseButton, LineSegs
+from panda3d.core import LColor, MouseButton, LineSegs, TextNode
 
 from common.net import send_json, read_json, lan_discovery_broadcast
 from game.constants import TEAM_RED, TEAM_BLUE
@@ -164,6 +165,14 @@ class GameApp(ShowBase):
         # UI text (simple crosshair)
         from direct.gui.OnscreenText import OnscreenText
         self.crosshair = OnscreenText(text="+", pos=(0, 0), fg=(1, 1, 1, 1), scale=0.08, mayChange=True)
+        # --- Killfeed HUD state ---
+        hud_cfg = self.cfg.get("hud", {})
+        self._kill_ttl   = float(hud_cfg.get("killfeed_ttl", 4.0))
+        self._kill_max   = int(hud_cfg.get("killfeed_max", 6))
+        self._kill_scale = float(hud_cfg.get("killfeed_font_scale", 0.045))
+
+        self._kill_seen = set()            # (t_ms, attacker_pid, victim_pid)
+        self._kill_nodes = []              # list[(OnscreenText, created_time)]
 
         # key state
         self.keys = set()
@@ -298,36 +307,71 @@ class GameApp(ShowBase):
         # Clear previous frame's beams
         for child in self.beam_group.getChildren():
             child.removeNode()
-
         if not s0 and not s1:
             return
 
-        # Pull beams from the two snapshots we’re interpolating between
+        # Combine beams from the two snapshots we’re blending between
         beams0 = s0.get("beams", []) if s0 else []
         beams1 = s1.get("beams", []) if (s1 is not s0 and s1) else []
         beams = beams0 + beams1
 
-        # Use team colors from config
-        col_red  = self.cfg["colors"]["team_red"]   # [r,g,b,a]
-        col_blue = self.cfg["colors"]["team_blue"]  # [r,g,b,a]
+        # Config
+        vis = self.cfg.get("laser_visual", {})
+        speed = float(vis.get("projectile_speed_mps", 180.0))
+        streak_len = float(vis.get("streak_length_m", 2.0))
+        thickness = float(vis.get("beam_thickness_px", 3.0))
+
+        # Render clock (server-time) that our interpolation already uses
+        render_time = self.latest_server_time - self.interp_delay  # same clock as get_snapshots_for_render()
+
+        col_red  = self.cfg["colors"]["team_red"]
+        col_blue = self.cfg["colors"]["team_blue"]
 
         seen = set()
         for b in beams:
-            key = (round(b["sx"], 2), round(b["sy"], 2), round(b["sz"], 2),
-                   round(b["ex"], 2), round(b["ey"], 2), round(b["ez"], 2),
+            key = (round(b["sx"],2), round(b["sy"],2), round(b["sz"],2),
+                   round(b["ex"],2), round(b["ey"],2), round(b["ez"],2),
                    b.get("team", -1), int(b.get("t", 0.0) * 20))
             if key in seen:
                 continue
             seen.add(key)
 
+            # Time-of-flight progress
+            t0 = float(b.get("t", 0.0))
+            elapsed = render_time - t0
+            if elapsed <= 0.0:
+                continue
+
+            sx, sy, sz = b["sx"], b["sy"], b["sz"]
+            ex, ey, ez = b["ex"], b["ey"], b["ez"]
+            dx, dy, dz = (ex - sx), (ey - sy), (ez - sz)
+            L = float(b.get("len", math.sqrt(dx*dx + dy*dy + dz*dz)))
+            if L <= 1e-6:
+                continue
+
+            head = min(L, elapsed * speed)
+            tail = max(0.0, head - streak_len)
+
+            if head <= 0.0:
+                continue
+
+            # Segment endpoints for the visible streak
+            ux, uy, uz = (dx / L), (dy / L), (dz / L)
+            x0 = sx + ux * tail
+            y0 = sy + uy * tail
+            z0 = sz + uz * tail
+            x1 = sx + ux * head
+            y1 = sy + uy * head
+            z1 = sz + uz * head
+
             segs = LineSegs()
-            segs.setThickness(3.0)  # pixels
+            segs.setThickness(thickness)
             if b.get("team") == TEAM_RED:
                 segs.setColor(col_red[0], col_red[1], col_red[2], 1.0)
             else:
                 segs.setColor(col_blue[0], col_blue[1], col_blue[2], 1.0)
-            segs.moveTo(b["sx"], b["sy"], b["sz"])
-            segs.drawTo(b["ex"], b["ey"], b["ez"])
+            segs.moveTo(x0, y0, z0)
+            segs.drawTo(x1, y1, z1)
             self.beam_group.attachNewNode(segs.create())
 
     def _clip_to_obstacles(self, x, y, z, radius=0.38, epsilon=0.02):
@@ -367,6 +411,26 @@ class GameApp(ShowBase):
         return x, y
 
     # --- Per-frame update -------------------------------------------------
+
+    def _layout_killfeed(self):
+        y = 0.92
+        line = self._kill_scale * 1.6
+        for node, _t in self._kill_nodes:
+            node.setPos(0.95, y)  # top-right-ish; using right alignment below
+            y -= line
+
+    def _add_killfeed_item(self, text: str, color=(1,1,1,1)):
+        node = OnscreenText(
+            text=text, pos=(0.95, 0.92),  # will be re-laid
+            fg=color, scale=self._kill_scale, align=TextNode.ARight, mayChange=True
+        )
+        # newest first
+        self._kill_nodes.insert(0, (node, time.time()))
+        # trim overflow
+        while len(self._kill_nodes) > self._kill_max:
+            old, _t = self._kill_nodes.pop()
+            old.removeNode()
+        self._layout_killfeed()
 
     def update_task(self, task):
         # === Interpolate and render ===
@@ -421,6 +485,13 @@ class GameApp(ShowBase):
 
             node.setPos(px, py, pz)
             node.setHpr(yaw, 0, 0)
+
+            alive_state = bool(((p1 or p0) or {}).get("alive", True))
+            if not alive_state:
+                node.setRenderModeWireframe()
+            else:
+                node.setRenderModeFilled()
+
             present.add(pid)
 
         # Remove nodes for players no longer present
@@ -459,6 +530,28 @@ class GameApp(ShowBase):
 
         # draw recent beams from the current snapshots
         self._render_beams(s0, s1, a)
+
+        # --- Killfeed ingest & prune ---
+        latest = s1 or s0
+        if latest:
+            feed = latest.get("killfeed", [])
+            for ev in feed:
+                key = (int(float(ev.get("t", 0.0)) * 1000), ev.get("attacker"), ev.get("victim"))
+                if key in self._kill_seen:
+                    continue
+                self._kill_seen.add(key)
+                msg = f"{ev.get('attacker_name','?')} eliminated {ev.get('victim_name','?')}"
+                self._add_killfeed_item(msg)
+
+        # expire old killfeed entries (no fade, simple TTL)
+        nowt = time.time()
+        for i in range(len(self._kill_nodes) - 1, -1, -1):
+            node, t0 = self._kill_nodes[i]
+            if (nowt - t0) >= self._kill_ttl:
+                node.removeNode()
+                self._kill_nodes.pop(i)
+        if self._kill_nodes:
+            self._layout_killfeed()
 
         # === Build & send inputs ===
         mx = 0.0

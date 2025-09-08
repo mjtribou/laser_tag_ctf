@@ -7,7 +7,7 @@
     "snapshot_hz": 30,
     "max_players": 10,
     "captures_to_win": 3,
-    "respawn_seconds": 0.25,
+    "respawn_seconds": 2,
     "flag_return_seconds": 10,
     "friendly_fire": false,
     "bot_fill": true,
@@ -38,6 +38,13 @@
     "symmetry": "even",
     "spawn_clear_radius": 6
   },
+  "bunkers": {
+    "file": "configs/bunkers.json",
+    "symmetry": "even",
+    "keepout_radius": 6.0,
+    "count_min": 8,
+    "count_max": 12
+  },
   "colors": {
     "team_red": [
       0.85,
@@ -58,9 +65,20 @@
       1.0
     ]
   },
+  "laser_visual": {
+    "projectile_speed_mps": 180.0,
+    "streak_length_m": 2.0,
+    "beam_thickness_px": 3.0,
+    "fadeout_s": 0.05
+  },
   "camera": {
     "near": 0.03,
     "far": 300.0
+  },
+  "hud": {
+    "killfeed_max": 6,
+    "killfeed_ttl": 4.0,
+    "killfeed_font_scale": 0.045
   },
   "audio": {
     "volume": 0.7,

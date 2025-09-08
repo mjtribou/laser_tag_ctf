@@ -81,6 +81,8 @@ class LaserTagServer:
 
         self._build_static_world()
 
+        self.killfeed = []  # rolling list of {"t", "attacker","attacker_name","victim","victim_name"}
+
     # ---------- Physics world ----------
     def _attach_static_box(self, center: Tuple[float, float, float], size: Tuple[float, float, float], tag: str):
         hx, hy, hz = size[0]*0.5, size[1]*0.5, size[2]*0.5
@@ -323,12 +325,18 @@ class LaserTagServer:
                 print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
 
     # ---------- Firing / hitscan ----------
-    def _add_beam(self, team: int, start: Tuple[float, float, float], end: Tuple[float, float, float]):
+    def _add_beam(self, team: int, start: Tuple[float,float,float], end: Tuple[float,float,float]):
+        sx, sy, sz = start
+        ex, ey, ez = end
+        dx, dy, dz = (ex - sx), (ey - sy), (ez - sz)
+        length = math.sqrt(dx*dx + dy*dy + dz*dz)
+
         self.recent_beams.append({
             "team": team,
-            "sx": start[0], "sy": start[1], "sz": start[2],
-            "ex": end[0],   "ey": end[1],   "ez": end[2],
-            "t": now()
+            "sx": sx, "sy": sy, "sz": sz,
+            "ex": ex, "ey": ey, "ez": ez,
+            "len": length,          # <= for client projectile animation
+            "t": now(),             # shot start time
         })
 
     def _apply_hitscan(self, shooter: Player, spread_rad: float) -> Optional[int]:
@@ -449,6 +457,26 @@ class LaserTagServer:
         v.alive = False
         v.respawn_at = now() + float(self.cfg["server"]["respawn_seconds"])  # existing behavior :contentReference[oaicite:3]{index=3}
 
+        # --- Killfeed event ---
+        try:
+            v = self.gs.players.get(victim_pid)
+            a = self.gs.players.get(attacker_pid) if attacker_pid is not None else None
+            evt = {
+                "t": now(),
+                "attacker": attacker_pid,
+                "attacker_name": (a.name if a else "World"),
+                "victim": victim_pid,
+                "victim_name": (v.name if v else "Unknown"),
+            }
+            self.killfeed.append(evt)
+            # keep a small rolling buffer (max ~3× UI capacity)
+            max_keep = int(self.cfg.get("hud", {}).get("killfeed_max", 6)) * 3
+            max_keep = max(12, max_keep)
+            if len(self.killfeed) > max_keep:
+                self.killfeed = self.killfeed[-max_keep:]
+        except Exception:
+            pass
+
         # HARD FREEZE: zero character controller movement immediately so they don't coast for respawn duration.
         ch = self._char_node.get(victim_pid)
         if ch is not None:
@@ -537,8 +565,22 @@ class LaserTagServer:
 
     # ---------- Snapshots ----------
     def _trim_old_beams(self):
-        horizon = now() - 0.25
-        self.recent_beams = [b for b in self.recent_beams if b["t"] >= horizon]
+        vis_cfg = self.cfg.get("laser_visual", {})
+        speed = float(vis_cfg.get("projectile_speed_mps", 180.0))
+        fade  = float(vis_cfg.get("fadeout_s", 0.05))
+
+        now_t = now()
+        alive = []
+        for b in self.recent_beams:
+            # compute length if older servers haven't added "len" yet
+            L = b.get("len")
+            if L is None:
+                dx = b["ex"] - b["sx"]; dy = b["ey"] - b["sy"]; dz = b["ez"] - b["sz"]
+                L = math.sqrt(dx*dx + dy*dy + dz*dz)
+            ttl = (L / max(1e-6, speed)) + fade
+            if (now_t - b["t"]) <= ttl:
+                alive.append(b)
+        self.recent_beams = alive
 
     def build_snapshot(self) -> Dict[str, Any]:
         self._trim_old_beams()
@@ -550,12 +592,21 @@ class LaserTagServer:
                 "yaw": rad_to_deg(p.yaw_rad), "pitch": rad_to_deg(p.pitch_rad),
                 "alive": p.alive,
             })
+
         flags = []
         for fl in self.gs.flags.values():
             flags.append({
                 "team": fl.team, "at_base": fl.at_base, "carried_by": fl.carried_by,
                 "x": fl.x, "y": fl.y, "z": fl.z
             })
+        
+        now_t = now()
+        hud_cfg = self.cfg.get("hud", {})
+        ttl = float(hud_cfg.get("killfeed_ttl", 4.0))
+        kmax = int(hud_cfg.get("killfeed_max", 6))
+        feed = [e for e in self.killfeed if (now_t - float(e.get("t", 0.0))) <= ttl]
+        feed = feed[-kmax:]  # last N within TTL
+
         return {
             "type": "state",
             "time": now(),
@@ -566,6 +617,7 @@ class LaserTagServer:
             "match_over": self.gs.match_over,
             "winner": self.gs.winner,
             "beams": self.recent_beams,
+            "killfeed": feed,   # NEW
         }
 
     # ---------- Networking ----------

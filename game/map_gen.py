@@ -1,8 +1,8 @@
 # game/map_gen.py
 from dataclasses import dataclass
 from typing import List, Tuple, Dict, Optional
-import random
-import math
+import random, math, json, os
+from .bunkers import BunkerLibrary, place_bunkers
 
 @dataclass
 class Block:
@@ -87,14 +87,15 @@ def generate(seed: int,
         left_range = range(0, mid + 1)  # include center column
 
     # Ground-layer placement then vertical stacking
-    for iy in range(ny):
-        for ix in left_range:
-            if rng.random() < p0:
-                h = 1
-                while (h < max_h) and (rng.random() < p_stack):
-                    h += 1
-                for k in range(h):  # k = 0 at floor
-                    authored_half.add((ix, iy, k))
+    if False:
+        for iy in range(ny):
+            for ix in left_range:
+                if rng.random() < p0:
+                    h = 1
+                    while (h < max_h) and (rng.random() < p_stack):
+                        h += 1
+                    for k in range(h):  # k = 0 at floor
+                        authored_half.add((ix, iy, k))
 
     # Mirror into the opposite half
     full_grid: set[Tuple[int, int, int]] = set(authored_half)
@@ -154,7 +155,7 @@ def generate(seed: int,
     red_flag_stand = (red_base[0], red_base[1], 0.0)
     blue_flag_stand = (blue_base[0], blue_base[1], 0.0)
 
-    return MapData(
+    mapdata = MapData(
         blocks=blocks,
         red_base=red_base,
         blue_base=blue_base,
@@ -164,3 +165,44 @@ def generate(seed: int,
         cube_size=cube,
         agent_radius=0.5  # matches 1-cube width
     )
+
+    # --- prefab bunkers ---
+    try:
+        # Default knobs
+        symmetry_cfg  = (cubes or {}).get("symmetry", "even")  # "even" mirrors across X=0
+        spawn_keepout = float((cubes or {}).get("spawn_clear_radius", 6.0))
+        bunkers_path  = "configs/bunkers.json"  # override via config if you like
+
+        # If a richer config file exists, allow overriding defaults
+        import json, os
+        if os.path.exists("configs/defaults.json"):
+            _cfg = json.load(open("configs/defaults.json", "r"))
+            if "bunkers" in _cfg:
+                bunkers_path  = _cfg["bunkers"].get("file", bunkers_path)
+                symmetry_cfg  = _cfg["bunkers"].get("symmetry", symmetry_cfg)
+                spawn_keepout = float(_cfg["bunkers"].get("keepout_radius", spawn_keepout))
+                count_min     = int(_cfg["bunkers"].get("count_min", 8))
+                count_max     = int(_cfg["bunkers"].get("count_max", 12))
+            else:
+                count_min, count_max = 8, 12
+        else:
+            count_min, count_max = 8, 12
+
+        if os.path.exists(bunkers_path):
+            lib = BunkerLibrary.from_json(bunkers_path, default_cube=cube)
+            # Seeded RNG for determinism from map seed
+            rng = random.Random(int(seed))
+            placed = place_bunkers(
+                mapdata, lib,
+                count_range=(count_min, count_max),
+                symmetry=symmetry_cfg,
+                keepout_radius=spawn_keepout,
+                rng=rng
+            )
+            print(f"[map_gen] bunkers placed: {placed} instances")
+    except Exception as e:
+        # Non-fatal (so you can ship without a bunkers file)
+        print(f"[map_gen] bunkers skipped: {e}")
+        pass
+
+    return mapdata
