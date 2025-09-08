@@ -4,10 +4,10 @@
     "port": 50007,
     "lan_discovery_port": 50000,
     "tick_hz": 60,
-    "snapshot_hz": 20,
+    "snapshot_hz": 30,
     "max_players": 10,
     "captures_to_win": 3,
-    "respawn_seconds": 3,
+    "respawn_seconds": 0.25,
     "flag_return_seconds": 10,
     "friendly_fire": false,
     "bot_fill": true,
@@ -19,12 +19,9 @@
     "crouch_speed": 3.0,
     "jump_speed": 4.8,
     "gravity": 9.81,
-    "player_height": 1.8,
-    "player_radius": 0.35,
-    "arena_size_m": [
-      80.0,
-      50.0
-    ],
+    "player_height": 2.0,
+    "player_radius": 0.5,
+    "arena_size_m": [160.0, 50.0],
     "rapid_fire_rate_hz": 10.0,
     "recoil_per_shot_deg": 0.4,
     "recoil_decay_per_sec_deg": 5.0,
@@ -32,6 +29,14 @@
     "spread_move_factor": 0.7,
     "spread_crouch_bonus": -0.08,
     "laser_range_m": 200.0
+  },
+  "cubes": {
+    "size": 1.0,
+    "max_height": 3,
+    "fill_prob": 0.09,
+    "stack_prob": 0.55,
+    "symmetry": "even",
+    "spawn_clear_radius": 6
   },
   "colors": {
     "team_red": [
@@ -52,6 +57,10 @@
       0.6,
       1.0
     ]
+  },
+  "camera": {
+    "near": 0.03,
+    "far": 300.0
   },
   "audio": {
     "volume": 0.7,

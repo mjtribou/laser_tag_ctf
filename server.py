@@ -1,287 +1,587 @@
-# server.py
-import asyncio, json, math, time, random
-from typing import Dict, Any, List, Tuple
+# server.py — Authoritative server with Bullet physics (players, walls, floor, obstacles),
+# Bullet ray tests for lasers, safe-spawn, auto-unstick, and shared solid collide-mask fix.
+import asyncio, json, math, time, random, argparse, signal
+from typing import Dict, Any, List, Tuple, Optional
+
 from common.net import read_json, send_json, lan_discovery_server
-from game.constants import TEAM_RED, TEAM_BLUE, MAX_PLAYERS, PLAYER_HEIGHT, PLAYER_RADIUS, FLAG_PICKUP_RADIUS, FLAG_RETURN_RADIUS, BASE_CAPTURE_RADIUS
+from game.constants import (
+    TEAM_RED, TEAM_BLUE, MAX_PLAYERS,
+    PLAYER_HEIGHT, PLAYER_RADIUS,
+    FLAG_PICKUP_RADIUS, FLAG_RETURN_RADIUS, BASE_CAPTURE_RADIUS,
+)
 from game.map_gen import generate
-from game.server_state import GameState, Player, Flag, unit_vector_from_angles
+from game.server_state import GameState, Player, Flag
+from game.transform import wrap_pi, deg_to_rad, rad_to_deg, forward_vector, local_move_delta
 from game.bot_ai import SimpleBotBrain
 
-import argparse, pathlib
+# --- Panda3D / Bullet (headless) ---
+from panda3d.core import Vec3, Point3, NodePath, BitMask32
+from panda3d.bullet import (
+    BulletWorld, BulletRigidBodyNode, BulletBoxShape, BulletCharacterControllerNode,
+)
 
+# ---------- Config ----------
 def load_config(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
         return json.load(f)
 
+# ---------- Utility ----------
+def now() -> float:
+    return time.time()
+
+# Shared collide mask for all SOLID things (players + static).
+# In Panda3D+Bullet, ONLY the "into" mask is used, and bodies must share a bit to collide.
+# See: Panda3D Manual — Bullet Collision Filtering.
+MASK_SOLID = BitMask32.bit(0)  # everything physically solid uses this
+
+def aabb_contains(x: float, y: float, z: float, center: Tuple[float,float,float], size: Tuple[float,float,float], margin=0.0) -> bool:
+    cx, cy, cz = center
+    sx, sy, sz = size
+    hx, hy, hz = sx * 0.5 - margin, sy * 0.5 - margin, sz * 0.5 - margin
+    return (abs(x - cx) <= hx) and (abs(y - cy) <= hy) and (abs(z - cz) <= hz)
+
+# ---------- Server ----------
 class LaserTagServer:
     def __init__(self, cfg: Dict[str, Any]):
         self.cfg = cfg
         self.gs = GameState()
         self.next_pid = 1
-        size_x, size_z = cfg["gameplay"]["arena_size_m"]
-        self.mapdata = generate(seed=42, size_x=size_x, size_z=size_z)
 
-        # init flags
+        size_x, size_z = self.cfg["gameplay"]["arena_size_m"]
+        cube_cfg = self.cfg.get("cubes", {})
+        self.mapdata = generate(seed=42, size_x=size_x, size_z=size_z, cubes=cube_cfg)
+
+        # flags
         red_flag = Flag(team=TEAM_RED, at_base=True, carried_by=None,
-                        x=self.mapdata.red_flag_stand[0], y=0.0, z=self.mapdata.red_flag_stand[2])
+                        x=self.mapdata.red_flag_stand[0], y=self.mapdata.red_flag_stand[1], z=0.0)
         blue_flag = Flag(team=TEAM_BLUE, at_base=True, carried_by=None,
-                        x=self.mapdata.blue_flag_stand[0], y=0.0, z=self.mapdata.blue_flag_stand[2])
+                         x=self.mapdata.blue_flag_stand[0], y=self.mapdata.blue_flag_stand[1], z=0.0)
         self.gs.flags = {TEAM_RED: red_flag, TEAM_BLUE: blue_flag}
 
+        # networking / gameplay
         self.clients: Dict[int, asyncio.StreamWriter] = {}
-        self.inputs: Dict[int, Dict[str, Any]] = {}  # last input per pid
+        self.inputs: Dict[int, Dict[str, Any]] = {}
         self.bot_brains: Dict[int, SimpleBotBrain] = {}
-        self._last_snapshot = 0.0
-        self._last_input_log: Dict[int, float] = {}
+        self.recent_beams: List[Dict[str, Any]] = []
 
-    def assign_spawn(self, team: int) -> Tuple[float,float,float,float]:
-        # spawn near base with some jitter
+        # ---- Bullet world ----
+        self._root = NodePath("world")
+        self.world = BulletWorld()
+        self.world.setGravity(Vec3(0, 0, -float(cfg["gameplay"]["gravity"])))
+
+        self._static_nodes: List[NodePath] = []  # floor, obstacles, walls
+        self._char_np: Dict[int, NodePath] = {}  # pid -> NodePath (character)
+        self._char_node: Dict[int, BulletCharacterControllerNode] = {}
+        self._node_id_to_pid: Dict[int, int] = {}  # id(BulletNode) -> pid (for ray hits)
+
+        # Unstick state
+        self._last_pos: Dict[int, Tuple[float,float,float]] = {}
+        self._stuck_since: Dict[int, float] = {}
+        self._last_safe_pos: Dict[int, Tuple[float,float,float]] = {}
+
+        self._build_static_world()
+
+    # ---------- Physics world ----------
+    def _attach_static_box(self, center: Tuple[float, float, float], size: Tuple[float, float, float], tag: str):
+        hx, hy, hz = size[0]*0.5, size[1]*0.5, size[2]*0.5
+        shape = BulletBoxShape(Vec3(hx, hy, hz))
+        node = BulletRigidBodyNode(f"static_{tag}")
+        node.addShape(shape)
+        node.setMass(0.0)
+        node.setIntoCollideMask(MASK_SOLID)  # <-- share mask with characters
+        np = self._root.attachNewNode(node)
+        np.setPos(center[0], center[1], center[2])
+        self.world.attachRigidBody(node)
+        np.setPythonTag("kind", "static")
+        np.setPythonTag("tag", tag)
+        self._static_nodes.append(np)
+        return np
+
+    def _build_static_world(self):
+        size_x, size_z = self.cfg["gameplay"]["arena_size_m"]
+
+        # Floor slab (top at z=0). Make it thick to be safe.
+        self._attach_static_box((0.0, 0.0, -2.5), (size_x, size_z, 5.0), "floor")
+
+        # Procedural blocks → static boxes
+        for i, b in enumerate(self.mapdata.blocks):
+            cx, cy, cz = b.pos
+            sx, sy, sz = b.size
+            self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"block_{i}")
+
+        # Arena walls (thin boxes)
+        wall_t = 0.5
+        wall_h = 5.0
+        hx, hz = size_x * 0.5, size_z * 0.5
+        self._attach_static_box((-hx - wall_t*0.5, 0.0, wall_h*0.5), (wall_t, size_z, wall_h), "wall_w")
+        self._attach_static_box((+hx + wall_t*0.5, 0.0, wall_h*0.5), (wall_t, size_z, wall_h), "wall_e")
+        self._attach_static_box((0.0, -hz - wall_t*0.5, wall_h*0.5), (size_x, wall_t, wall_h), "wall_s")
+        self._attach_static_box((0.0, +hz + wall_t*0.5, wall_h*0.5), (size_x, wall_t, wall_h), "wall_n")
+
+    def _create_character(self, pid: int, pos: Tuple[float, float, float], yaw_rad: float):
+        """Create a kinematic character using an **axis-aligned box** (AABB) shape.
+
+        We keep the Bullet *character controller* but swap the shape to a
+        BulletBoxShape and ensure we never rotate the Bullet node so the collider
+        stays axis-aligned in world space (visuals can still rotate).
+        """
+        height = float(self.cfg["gameplay"]["player_height"])     # full height
+        radius = float(self.cfg["gameplay"]["player_radius"])     # half-width in X/Y
+
+        # Box half-extents: X/Y from radius, Z from half height
+        half = Vec3(radius, radius, height * 0.5)
+        shape = BulletBoxShape(half)
+        step_height = 0.4
+
+        ch = BulletCharacterControllerNode(shape, step_height, f"char_{pid}")
+        ch.setGravity(float(self.cfg["gameplay"]["gravity"]))
+        ch.setIntoCollideMask(MASK_SOLID)  # collide with static world
+
+        np = self._root.attachNewNode(ch)
+        np.setPos(pos[0], pos[1], pos[2])
+        # IMPORTANT: do **not** set H on the Bullet node; keep collider axis-aligned
+        np.setPythonTag("kind", "player")
+        np.setPythonTag("pid", pid)
+
+        self.world.attachCharacter(ch)
+
+        self._char_np[pid] = np
+        self._char_node[pid] = ch
+        self._node_id_to_pid[id(ch)] = pid
+
+        self._last_pos[pid] = (pos[0], pos[1], pos[2])
+        self._stuck_since[pid] = 0.0
+        self._last_safe_pos[pid] = (pos[0], pos[1], pos[2])
+
+    def _remove_character(self, pid: int):
+        ch = self._char_node.get(pid)
+        np = self._char_np.get(pid)
+        if ch is not None:
+            try:
+                self.world.removeCharacter(ch)
+            except Exception:
+                pass
+            self._node_id_to_pid.pop(id(ch), None)
+            del self._char_node[pid]
+        if np is not None:
+            np.removeNode()
+            del self._char_np[pid]
+        self._last_pos.pop(pid, None)
+        self._stuck_since.pop(pid, None)
+        self._last_safe_pos.pop(pid, None)
+
+    # ---------- Spawn helpers ----------
+    def _point_inside_any_block(self, x: float, y: float, z: float, margin: float = 0.02) -> bool:
+        for b in self.mapdata.blocks:
+            if aabb_contains(x, y, z, b.pos, b.size, margin):
+                return True
+        return False
+
+    def _find_safe_spawn_near(self, base_xy: Tuple[float,float], tries: int = 30) -> Tuple[float,float,float]:
+        bx, by = base_xy
+        for r in [0.0, 2.5, 4.0, 5.5, 7.0]:
+            for _ in range(max(1, tries // 5)):
+                ang = random.uniform(0, 2*math.pi)
+                x = bx + math.cos(ang) * r + random.uniform(-0.75, 0.75)
+                y = by + math.sin(ang) * r + random.uniform(-0.75, 0.75)
+                z = 1.2  # slightly above floor; gravity settles
+                if not self._point_inside_any_block(x, y, z, margin=0.05):
+                    return (x, y, z)
+        return (bx, by, 1.5)
+
+    # ---------- Players / bots ----------
+    def assign_spawn(self, team: int) -> Tuple[float, float, float, float]:
         base = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
-        x = base[0] + random.uniform(-3,3)
-        z = base[2] + random.uniform(-3,3)
-        yaw = 0.0 if team == TEAM_RED else 180.0
-        return x, 0.9, z, yaw
+        x, y, z = self._find_safe_spawn_near((base[0], base[1]))
+        yaw_rad = 0.0 if team == TEAM_RED else math.pi
+        return x, y, z, yaw_rad
 
-    def add_player(self, name: str, is_bot=False) -> int:
-        # pick team with fewer members
-        red_count = sum(1 for p in self.gs.players.values() if p.team==TEAM_RED)
-        blue_count = sum(1 for p in self.gs.players.values() if p.team==TEAM_BLUE)
-        team = TEAM_RED if red_count<=blue_count else TEAM_BLUE
-        x,y,z,yaw = self.assign_spawn(team)
-        pid = self.next_pid; self.next_pid += 1
-        self.gs.players[pid] = Player(pid=pid, name=name, team=team, x=x,y=y,z=z, yaw=yaw)
+    def add_player(self, name: str, is_bot: bool = False) -> int:
+        red_ct = sum(1 for p in self.gs.players.values() if p.team == TEAM_RED)
+        blue_ct = sum(1 for p in self.gs.players.values() if p.team == TEAM_BLUE)
+        team = TEAM_RED if red_ct <= blue_ct else TEAM_BLUE
+
+        pid = self.next_pid
+        self.next_pid += 1
+
+        x, y, z, yaw_rad = self.assign_spawn(team)
+        p = Player(pid=pid, name=name, team=team, x=x, y=y, z=z, yaw_rad=yaw_rad, pitch_rad=0.0, on_ground=True)
+        self.gs.players[pid] = p
+
+        self._create_character(pid, (x, y, z), yaw_rad)
+
         if is_bot:
-            base = self.mapdata.red_base if team==TEAM_RED else self.mapdata.blue_base
-            enemy = self.mapdata.blue_base if team==TEAM_RED else self.mapdata.red_base
-            self.bot_brains[pid] = SimpleBotBrain(team, base, enemy)
+            base_pos = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
+            enemy_base = self.mapdata.blue_base if team == TEAM_RED else self.mapdata.red_base
+            # Use A* navigation brain for bots
+            from game.bot_ai import AStarBotBrain
+            brain = AStarBotBrain(team, base_pos, enemy_base)
+            self.bot_brains[pid] = brain
+
+        print(f"[join] pid={pid} name={name} team={'RED' if team==TEAM_RED else 'BLUE'}")
         return pid
 
     def remove_player(self, pid: int):
+        if pid in self.clients:
+            del self.clients[pid]
+        if pid in self.inputs:
+            del self.inputs[pid]
+        if pid in self.bot_brains:
+            del self.bot_brains[pid]
+        self._remove_character(pid)
         if pid in self.gs.players:
-            # if carrying flag, drop it
-            p = self.gs.players[pid]
-            if p.carrying_flag is not None:
-                flg = self.gs.flags[p.carrying_flag]
-                flg.carried_by = None
-                flg.at_base = False
-                flg.x, flg.y, flg.z = p.x, 0.0, p.z
-                flg.dropped_at_time = time.time()
-                p.carrying_flag = None
+            print(f"[leave] pid={pid} name={self.gs.players[pid].name}")
             del self.gs.players[pid]
-        self.clients.pop(pid, None)
-        self.inputs.pop(pid, None)
-        self.bot_brains.pop(pid, None)
+
+    def respawn_player(self, pid: int):
+        p = self.gs.players.get(pid)
+        if not p:
+            return
+        x, y, z, yaw_rad = self.assign_spawn(p.team)
+        p.x, p.y, p.z = x, y, z
+        p.yaw_rad = yaw_rad
+        p.pitch_rad = 0.0
+        p.vx = p.vy = p.vz = 0.0
+        p.on_ground = True
+        p.alive = True
+        p.respawn_at = 0.0
+        if pid in self._char_np:
+            self._char_np[pid].setPos(x, y, z)
+        self._last_pos[pid] = (x, y, z)
+        self._last_safe_pos[pid] = (x, y, z)
+        self._stuck_since[pid] = 0.0
+
+    # ---------- Game mechanics ----------
+    def _drop_flag(self, team_flag: int, x: float, y: float, z: float):
+        fl = self.gs.flags[team_flag]
+        fl.carried_by = None
+        fl.at_base = False
+        fl.x, fl.y, fl.z = x, y, max(0.0, z)
+        fl.dropped_at_time = now()
+
+    def _pickup_try(self, p: Player):
+        for team_flag, fl in self.gs.flags.items():
+            if team_flag == p.team:
+                d = math.hypot(p.x - fl.x, p.y - fl.y)
+                if (not fl.at_base) and fl.carried_by is None and d <= FLAG_RETURN_RADIUS:
+                    fl.at_base = True
+                    fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
+                    fl.x, fl.y, fl.z = fx, fy, fz
+                    fl.dropped_at_time = 0.0
+                continue
+
+            if fl.carried_by is not None:
+                continue
+            if fl.at_base:
+                fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
+            else:
+                fx, fy, fz = fl.x, fl.y, fl.z
+            d = math.hypot(p.x - fx, p.y - fy)
+            if d <= FLAG_PICKUP_RADIUS:
+                fl.carried_by = p.pid
+                fl.at_base = False
+                fl.x, fl.y, fl.z = p.x, p.y, p.z + 0.8
+
+    def _carry_flags_update(self):
+        for fl in self.gs.flags.values():
+            if fl.carried_by and fl.carried_by in self.gs.players:
+                carrier = self.gs.players[fl.carried_by]
+                fl.x, fl.y, fl.z = carrier.x, carrier.y, carrier.z + 0.8
+
+    def _dropped_flags_auto_return(self):
+        ttl = float(self.cfg["server"]["flag_return_seconds"])
+        t = now()
+        for fl in self.gs.flags.values():
+            if (not fl.at_base) and (fl.carried_by is None) and fl.dropped_at_time > 0.0:
+                if (t - fl.dropped_at_time) >= ttl:
+                    fl.at_base = True
+                    fl.dropped_at_time = 0.0
+                    fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
+                    fl.x, fl.y, fl.z = fx, fy, fz
+
+    def _check_captures(self):
+        to_win = int(self.cfg["server"]["captures_to_win"])
+        for team_id in (TEAM_RED, TEAM_BLUE):
+            if self.gs.teams[team_id].captures >= to_win:
+                self.gs.match_over = True
+                self.gs.winner = team_id
+
+        for pid, p in list(self.gs.players.items()):
+            if not p.alive:
+                continue
+            enemy_flag_team = TEAM_BLUE if p.team == TEAM_RED else TEAM_RED
+            fl = self.gs.flags[enemy_flag_team]
+            if fl.carried_by != pid:
+                continue
+            bx, by, bz = (self.mapdata.red_base if p.team == TEAM_RED else self.mapdata.blue_base)
+            if math.hypot(p.x - bx, p.y - by) <= BASE_CAPTURE_RADIUS:
+                self.gs.teams[p.team].captures += 1
+                fl.carried_by = None
+                fl.at_base = True
+                fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
+                fl.x, fl.y, fl.z = fx, fy, fz
+                print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
+
+    # ---------- Firing / hitscan ----------
+    def _add_beam(self, team: int, start: Tuple[float, float, float], end: Tuple[float, float, float]):
+        self.recent_beams.append({
+            "team": team,
+            "sx": start[0], "sy": start[1], "sz": start[2],
+            "ex": end[0],   "ey": end[1],   "ez": end[2],
+            "t": now()
+        })
+
+    def _apply_hitscan(self, shooter: Player, spread_rad: float) -> Optional[int]:
+        rng = random.random
+        jx = (rng() + rng() + rng() - 1.5) * spread_rad
+        jy = (rng() + rng() + rng() - 1.5) * spread_rad
+
+        yaw = shooter.yaw_rad + jx
+        pitch = shooter.pitch_rad + jy
+        fx, fy, fz = forward_vector(yaw, pitch)
+
+        origin = Point3(shooter.x, shooter.y, shooter.z + 0.5)
+        max_range = float(self.cfg["gameplay"]["laser_range_m"])
+        end = Point3(shooter.x + fx * max_range, shooter.y + fy * max_range, shooter.z + 0.8 + fz * max_range)
+
+        res = self.world.rayTestAll(origin, end)
+        hits = list(res.getHits())
+        hits.sort(key=lambda h: h.getHitFraction())
+
+        hit_end = (end.x, end.y, end.z)
+        victim_pid: Optional[int] = None
+
+        ff = bool(self.cfg["server"].get("friendly_fire", False))
+        shooter_team = shooter.team
+
+        for h in hits:
+            node = h.getNode()
+            np = NodePath(node)
+            kind = np.getPythonTag("kind") if np.hasPythonTag("kind") else None
+            hp = h.getHitPos()
+            hp_t = (hp.x, hp.y, hp.z)
+
+            if kind == "player":
+                pid = np.getPythonTag("pid") if np.hasPythonTag("pid") else self._node_id_to_pid.get(id(node))
+                if pid is None or pid == shooter.pid:
+                    continue
+                tgt = self.gs.players.get(pid)
+                if not tgt or not tgt.alive:
+                    continue
+                if (not ff) and tgt.team == shooter_team:
+                    hit_end = hp_t
+                    break
+                victim_pid = pid
+                hit_end = hp_t
+                break
+            else:
+                hit_end = hp_t
+                break
+
+        self._add_beam(shooter.team, (origin.x, origin.y, origin.z), hit_end)
+        return victim_pid
+
+    # ---------- Input & per-tick ----------
+    def _movement_speed(self, p: Player, walk: bool, crouch: bool) -> float:
+        if crouch:
+            return float(self.cfg["gameplay"]["crouch_speed"])
+        if walk:
+            return float(self.cfg["gameplay"]["walk_speed"])
+        return float(self.cfg["gameplay"]["run_speed"])
 
     def process_input(self, p: Player, inp: Dict[str, Any], dt: float):
         if not p.alive:
             return
-        gp = self.cfg["gameplay"]
-        speed = gp["run_speed"]
-        if inp.get("walk"):
-            speed = gp["walk_speed"]
-            p.walking = True
-        else:
-            p.walking = False
-        if inp.get("crouch"):
-            p.crouching = True
-            speed = min(speed, gp["crouch_speed"])
-        else:
-            p.crouching = False
 
+        p.yaw_rad = wrap_pi(deg_to_rad(float(inp.get("yaw", rad_to_deg(p.yaw_rad)))))
+        p.pitch_rad = wrap_pi(deg_to_rad(float(inp.get("pitch", rad_to_deg(p.pitch_rad)))))
+
+        walk = bool(inp.get("walk", False))
+        crouch = bool(inp.get("crouch", False))
+        jump_pressed = bool(inp.get("jump", False))
+
+        speed = self._movement_speed(p, walk, crouch)
         mx = float(inp.get("mx", 0.0))
         mz = float(inp.get("mz", 0.0))
-        # move in local yaw
-        yaw_rad = math.radians(p.yaw)
-        fwdx, fwdz = math.cos(yaw_rad), -math.sin(yaw_rad)
-        leftx, leftz = -fwdz, fwdx
-        dx = (fwdx*mz + leftx*mx)*speed*dt
-        dz = (fwdz*mz + leftz*mx)*speed*dt
 
-        # simple floor clamp
-        p.x += dx
-        p.z += dz
-        p.y = 0.9  # keep simple
+        ch = self._char_node.get(p.pid)
+        np = self._char_np.get(p.pid)
+        if (ch is None) or (np is None):
+            return
 
-        # look
-        p.yaw = float(inp.get("yaw", p.yaw))
-        p.pitch = max(-90.0, min(90.0, float(inp.get("pitch", p.pitch))))
-        
-        # --- DEBUG: log player inputs/state (throttled to 1 Hz per player)
-        now = time.time()
-        last = self._last_input_log.get(p.pid, 0.0)
-        if now - last >= 1.0:
-            print(
-                f"[input] pid={p.pid} name={p.name} "
-                f"team={'RED' if p.team==TEAM_RED else 'BLUE'} "
-                f"mx={float(inp.get('mx', 0.0)):+.1f} mz={float(inp.get('mz', 0.0)):+.1f} "
-                f"walk={bool(inp.get('walk', False))} crouch={bool(inp.get('crouch', False))} "
-                f"fire={bool(inp.get('fire', False))} "
-                f"yaw={p.yaw:.1f} pitch={p.pitch:.1f} "
-                f"pos=({p.x:.2f},{p.z:.2f}) alive={p.alive}"
-            )
-            self._last_input_log[p.pid] = now
+        vx, vy = local_move_delta(mx, mz, p.yaw_rad, speed, 1.0)  # m/s
+        ch.setLinearMovement(Vec3(vx, vy, 0.0), False)
 
+        try:
+            on_ground = ch.isOnGround()
+        except Exception:
+            on_ground = False
+        if jump_pressed and on_ground:
+            try:
+                ch.doJump()
+            except Exception:
+                pass
 
-        now = time.time()
-        # firing
-        if inp.get("fire"):
-            rof = gp["rapid_fire_rate_hz"]
-            if (now - p.last_fire_time) >= (1.0/rof):
-                p.last_fire_time = now
-                # recoil accum & spread
-                p.recoil_accum += gp["recoil_per_shot_deg"]
-                # accuracy based on movement speed + crouch
-                move_mag = math.sqrt(dx*dx + dz*dz)/max(dt,1e-5)
-                move_factor = (move_mag / gp["run_speed"])
-                spread = gp["base_spread_deg"] + move_factor*gp["spread_move_factor"]
-                if p.crouching:
-                    spread += gp["spread_crouch_bonus"]
-                spread = max(0.02, spread) + p.recoil_accum*0.2
-                self.apply_hitscan(p, spread_deg=spread)
+        if bool(inp.get("fire", False)):
+            t = now()
+            rof = float(self.cfg["gameplay"]["rapid_fire_rate_hz"])
+            min_dt = 1.0 / max(1e-6, rof)
+            if t - p.last_fire_time >= min_dt:
+                p.last_fire_time = t
+                base = float(self.cfg["gameplay"]["base_spread_deg"])
+                move_factor = float(self.cfg["gameplay"]["spread_move_factor"])
+                crouch_bonus = float(self.cfg["gameplay"]["spread_crouch_bonus"])
+                intent_mag = min(1.0, math.hypot(mx, mz))
+                spread_deg = base + move_factor * intent_mag + (crouch_bonus if crouch else 0.0) + p.recoil_accum
+                spread_rad = math.radians(max(0.0, spread_deg))
+                victim = self._apply_hitscan(p, spread_rad)
+                p.recoil_accum = min(4.0, p.recoil_accum + float(self.cfg["gameplay"]["recoil_per_shot_deg"]))
+                if victim is not None:
+                    self._tag_player(victim, attacker=p.pid)
 
-        # decay recoil
-        p.recoil_accum = max(0.0, p.recoil_accum - self.cfg["gameplay"]["recoil_decay_per_sec_deg"]*dt)
+        p.recoil_accum = max(0.0, p.recoil_accum - float(self.cfg["gameplay"]["recoil_decay_per_sec_deg"]) * dt)
 
-        # interact (pick flag)
-        if inp.get("interact"):
-            self.try_flag_interact(p)
+    def _tag_player(self, victim_pid: int, attacker: Optional[int] = None):
+        v = self.gs.players.get(victim_pid)
+        if not v or not v.alive:
+            return
+        # Mark dead + schedule respawn (server already skips dead players’ inputs). :contentReference[oaicite:2]{index=2}
+        v.alive = False
+        v.respawn_at = now() + float(self.cfg["server"]["respawn_seconds"])  # existing behavior :contentReference[oaicite:3]{index=3}
 
-        # respawn if dead and time elapsed
-        if (not p.alive) and time.time() >= p.respawn_at:
-            self.spawn_player(p)
+        # HARD FREEZE: zero character controller movement immediately so they don't coast for respawn duration.
+        ch = self._char_node.get(victim_pid)
+        if ch is not None:
+            try:
+                ch.setLinearMovement(Vec3(0.0, 0.0, 0.0), True)  # movement is commanded per-tick elsewhere; zero it now
+            except Exception:
+                pass
 
-    def spawn_player(self, p: Player):
-        base = self.mapdata.red_base if p.team==TEAM_RED else self.mapdata.blue_base
-        p.x, p.y, p.z, p.yaw = self.assign_spawn(p.team)
-        p.alive = True
-        p.carrying_flag = None
-        p.recoil_accum = 0.0
+        # Drop any carried flag at current position
+        for team_flag, fl in self.gs.flags.items():
+            if fl.carried_by == victim_pid:
+                self._drop_flag(team_flag, v.x, v.y, v.z)
 
-    def apply_hitscan(self, shooter: Player, spread_deg: float):
-        # random spread around yaw/pitch
-        yaw = shooter.yaw + random.uniform(-spread_deg, spread_deg)
-        pitch = shooter.pitch + random.uniform(-spread_deg, spread_deg)
-        dx,dy,dz = unit_vector_from_angles(yaw, pitch)
-        max_range = self.cfg["gameplay"]["laser_range_m"]
-        # simple line test against players (no occlusion for MVP)
-        best_pid = None
-        best_t = 1e9
-        sx, sy, sz = shooter.x, shooter.y+0.8, shooter.z
-        for pid, target in self.gs.players.items():
-            if pid == shooter.pid or target.team == shooter.team:
+    def _auto_unstick(self, dt: float):
+        for pid, p in self.gs.players.items():
+            if not p.alive:
+                self._stuck_since[pid] = 0.0
                 continue
-            if not target.alive:
+
+            np = self._char_np.get(pid)
+            if np is None:
                 continue
-            # sphere intersection (approximate)
-            tx, ty, tz = target.x, target.y+0.9, target.z
-            # compute closest approach along ray
-            rx, ry, rz = tx - sx, ty - sy, tz - sz
-            t = (rx*dx + ry*dy + rz*dz)
-            if t < 0 or t > max_range:
+
+            inp = self.inputs.get(pid, {})
+            intent_mag = min(1.0, math.hypot(float(inp.get("mx", 0.0)), float(inp.get("mz", 0.0))))
+
+            prev = self._last_pos.get(pid, (p.x, p.y, p.z))
+            dx, dy, dz = p.x - prev[0], p.y - prev[1], p.z - prev[2]
+            dist = math.sqrt(dx*dx + dy*dy + dz*dz)
+            self._last_pos[pid] = (p.x, p.y, p.z)
+
+            if not self._point_inside_any_block(p.x, p.y, p.z, margin=0.05):
+                self._last_safe_pos[pid] = (p.x, p.y, p.z)
+                self._stuck_since[pid] = 0.0
                 continue
-            closest_x = sx + dx*t
-            closest_y = sy + dy*t
-            closest_z = sz + dz*t
-            dist2 = (closest_x-tx)**2 + (closest_y-ty)**2 + (closest_z-tz)**2
-            if dist2 <= 0.4*0.4:  # hit radius
-                if t < best_t:
-                    best_t = t
-                    best_pid = pid
-        if best_pid is not None:
-            self.handle_tag(shooter, self.gs.players[best_pid])
 
-    def handle_tag(self, shooter: Player, victim: Player):
-        # drop victim flag if any
-        if victim.carrying_flag is not None:
-            flg = self.gs.flags[victim.carrying_flag]
-            flg.carried_by = None
-            flg.at_base = False
-            flg.x, flg.y, flg.z = victim.x, 0.0, victim.z
-            flg.dropped_at_time = time.time()
-            victim.carrying_flag = None
-        victim.alive = False
-        victim.respawn_at = time.time() + self.cfg["server"]["respawn_seconds"]
-
-    def try_flag_interact(self, p: Player):
-        # pick up enemy flag if at stand or dropped nearby
-        enemy_team = TEAM_RED if p.team==TEAM_BLUE else TEAM_BLUE
-        flag = self.gs.flags[enemy_team]
-        if flag.carried_by is None:
-            # compute distance
-            dx = (flag.x if not flag.at_base else (self.mapdata.red_flag_stand[0] if enemy_team==TEAM_RED else self.mapdata.blue_flag_stand[0])) - p.x
-            dz = (flag.z if not flag.at_base else (self.mapdata.red_flag_stand[2] if enemy_team==TEAM_RED else self.mapdata.blue_flag_stand[2])) - p.z
-            if (dx*dx + dz*dz) <= FLAG_PICKUP_RADIUS*FLAG_PICKUP_RADIUS and p.alive:
-                flag.carried_by = p.pid
-                flag.at_base = False
-        # attempt capture if carrying enemy flag and at home base with own flag present
-        if p.carrying_flag is not None or (self.gs.flags[enemy_team].carried_by == p.pid):
-            my_flag = self.gs.flags[p.team]
-            # determine base position
-            bx = self.mapdata.red_flag_stand[0] if p.team==TEAM_RED else self.mapdata.blue_flag_stand[0]
-            bz = self.mapdata.red_flag_stand[2] if p.team==TEAM_RED else self.mapdata.blue_flag_stand[2]
-            dx = bx - p.x
-            dz = bz - p.z
-            if (dx*dx + dz*dz) <= BASE_CAPTURE_RADIUS*BASE_CAPTURE_RADIUS:
-                # must have own flag at base
-                if my_flag.at_base and my_flag.carried_by is None:
-                    # score!
-                    self.gs.teams[p.team].captures += 1
-                    # return enemy flag
-                    eflag = self.gs.flags[TEAM_RED if p.team==TEAM_BLUE else TEAM_BLUE]
-                    eflag.at_base = True
-                    eflag.carried_by = None
-                    # remove from player if we tracked that
-                    for pl in self.gs.players.values():
-                        if pl.pid == p.pid:
-                            pl.carrying_flag = None
-                    # check win
-                    if self.gs.teams[p.team].captures >= self.cfg["server"]["captures_to_win"]:
-                        self.gs.match_over = True
-                        self.gs.winner = p.team
-
-    def update_flags(self):
-        # update flag positions + auto return logic
-        for t, flg in self.gs.flags.items():
-            if flg.carried_by is not None:
-                if flg.carried_by in self.gs.players:
-                    pl = self.gs.players[flg.carried_by]
-                    flg.x, flg.y, flg.z = pl.x, 0.0, pl.z
+            t = now()
+            if intent_mag > 0.1 and dist < 0.005:
+                if self._stuck_since.get(pid, 0.0) == 0.0:
+                    self._stuck_since[pid] = t
+                elif (t - self._stuck_since[pid]) > 0.6:
+                    np.setPos(p.x + random.uniform(-0.15, 0.15),
+                              p.y + random.uniform(-0.15, 0.15),
+                              p.z + 0.6)
+                    self._stuck_since[pid] = t + 1e-3
+            elif self._point_inside_any_block(p.x, p.y, p.z, margin=0.05):
+                safe = self._last_safe_pos.get(pid)
+                if safe:
+                    np.setPos(safe[0], safe[1], max(0.9, safe[2]))
                 else:
-                    # carrier left
-                    flg.carried_by = None
-            if (not flg.at_base) and (flg.carried_by is None):
-                # auto return after timeout
-                if time.time() - flg.dropped_at_time >= self.cfg["server"]["flag_return_seconds"]:
-                    base = self.mapdata.red_flag_stand if t==TEAM_RED else self.mapdata.blue_flag_stand
-                    flg.x, flg.y, flg.z = base[0], 0.0, base[2]
-                    flg.at_base = True
+                    x, y, z, _ = self.assign_spawn(p.team)
+                    np.setPos(x, y, z)
+                self._stuck_since[pid] = 0.0
 
-    def build_snapshot(self):
-        # compact snapshot
+    def _after_physics_sync(self):
+        # Sync character nodes → Player state
+        for pid, p in self.gs.players.items():
+            np = self._char_np.get(pid)
+            if np is None:
+                continue
+            pos = np.getPos()
+            p.x, p.y, p.z = float(pos.x), float(pos.y), float(pos.z)
+            try:
+                p.on_ground = bool(self._char_node[pid].isOnGround())
+            except Exception:
+                p.on_ground = p.z <= 0.01
+
+        # Lightweight player-player separation for KCCs
+        alive_pids = [pid for pid, pp in self.gs.players.items() if pp.alive]
+        r = float(self.cfg["gameplay"]["player_radius"])
+        min_d = 2.0 * r * 0.98
+        for i in range(len(alive_pids)):
+            for j in range(i + 1, len(alive_pids)):
+                pa = self.gs.players[alive_pids[i]]
+                pb = self.gs.players[alive_pids[j]]
+                dx = pb.x - pa.x
+                dy = pb.y - pa.y
+                d2 = dx * dx + dy * dy
+                if d2 < (min_d * min_d) and d2 > 1e-6:
+                    d = math.sqrt(d2)
+                    push = 0.5 * (min_d - d)
+                    ux, uy = dx / d, dy / d
+                    npa, npb = self._char_np[pa.pid], self._char_np[pb.pid]
+                    npa.setPos(npa.getX() - ux * push, npa.getY() - uy * push, npa.getZ())
+                    npb.setPos(npb.getX() + ux * push, npb.getY() + uy * push, npb.getZ())
+
+    # ---------- Snapshots ----------
+    def _trim_old_beams(self):
+        horizon = now() - 0.25
+        self.recent_beams = [b for b in self.recent_beams if b["t"] >= horizon]
+
+    def build_snapshot(self) -> Dict[str, Any]:
+        self._trim_old_beams()
+        players = []
+        for p in self.gs.players.values():
+            players.append({
+                "pid": p.pid, "name": p.name, "team": p.team,
+                "x": p.x, "y": p.y, "z": p.z,
+                "yaw": rad_to_deg(p.yaw_rad), "pitch": rad_to_deg(p.pitch_rad),
+                "alive": p.alive,
+            })
+        flags = []
+        for fl in self.gs.flags.values():
+            flags.append({
+                "team": fl.team, "at_base": fl.at_base, "carried_by": fl.carried_by,
+                "x": fl.x, "y": fl.y, "z": fl.z
+            })
         return {
-            "type":"state",
-            "time": time.time(),
-            "teams": {str(TEAM_RED): {"captures": self.gs.teams[TEAM_RED].captures},
-                      str(TEAM_BLUE): {"captures": self.gs.teams[TEAM_BLUE].captures}},
-            "flags": {str(t): {"at_base": f.at_base, "carried_by": f.carried_by, "x": f.x, "y": f.y, "z": f.z} for t,f in self.gs.flags.items()},
-            "players": [
-                {"pid":p.pid, "name":p.name, "team":p.team, "x":p.x, "y":p.y, "z":p.z, "yaw":p.yaw, "pitch":p.pitch,
-                 "alive":p.alive, "carrying_flag":p.carrying_flag}
-                for p in self.gs.players.values()
-            ],
-            "over": self.gs.match_over, "winner": self.gs.winner
+            "type": "state",
+            "time": now(),
+            "players": players,
+            "flags": flags,
+            "teams": {TEAM_RED: {"captures": self.gs.teams[TEAM_RED].captures},
+                      TEAM_BLUE: {"captures": self.gs.teams[TEAM_BLUE].captures}},
+            "match_over": self.gs.match_over,
+            "winner": self.gs.winner,
+            "beams": self.recent_beams,
         }
 
+    # ---------- Networking ----------
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
+        addr = writer.get_extra_info("peername")
         hello = await read_json(reader)
         if hello.get("type") != "hello":
-            writer.close(); return
-        name = hello.get("name","Player")
-        pid = self.add_player(name=name, is_bot=False)
+            writer.close()
+            await writer.wait_closed()
+            return
+
+        name = hello.get("name", "Player")
+        pid = self.add_player(name, is_bot=False)
         self.clients[pid] = writer
 
-        await send_json(writer, {"type":"welcome","pid":pid,"team":self.gs.players[pid].team})
-        print(f"[join] {name} -> pid {pid} team {self.gs.players[pid].team}")
+        await send_json(writer, {"type": "welcome", "pid": pid, "team": self.gs.players[pid].team})
 
         try:
             while True:
@@ -289,71 +589,187 @@ class LaserTagServer:
                 if not msg:
                     break
                 if msg.get("type") == "input":
-                    self.inputs[pid] = msg["data"]
-                elif msg.get("type") == "pickup":
-                    self.try_flag_interact(self.gs.players[pid])
+                    self.inputs[pid] = msg.get("data", {})
         except Exception as e:
-            print("Client error:", e)
+            print(f"[client] {addr} error: {e}")
         finally:
-            print(f"[leave] pid {pid}")
             self.remove_player(pid)
-            writer.close()
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+
+    async def _broadcast_loop(self):
+        snap_dt = 1.0 / float(self.cfg["server"]["snapshot_hz"])
+        while True:
+            s = self.build_snapshot()
+            dead = []
+            for pid, w in self.clients.items():
+                try:
+                    await send_json(w, s)
+                except Exception:
+                    dead.append(pid)
+            for pid in dead:
+                self.remove_player(pid)
+            await asyncio.sleep(snap_dt)
+
+    # ---------- Main game loop ----------
+    def _ensure_bot_fill(self):
+        if not bool(self.cfg["server"].get("bot_fill", True)):
+            return
+        per_team = int(self.cfg["server"].get("bot_per_team_target", 5))
+        rc = sum(1 for p in self.gs.players.values() if p.team == TEAM_RED and p.pid not in self.clients)
+        bc = sum(1 for p in self.gs.players.values() if p.team == TEAM_BLUE and p.pid not in self.clients)
+        while rc < per_team:
+            self.add_player(name=f"BotR{rc+1}", is_bot=True)
+            rc += 1
+        while bc < per_team:
+            self.add_player(name=f"BotB{bc+1}", is_bot=True)
+            bc += 1
+
+    def _update_bots(self):
+        THINK_HZ = 10.0
+        THINK_DT = 1.0 / THINK_HZ
+        tnow = now()
+
+        for idx, (pid, brain) in enumerate(list(self.bot_brains.items())):
+            # Initialize per-brain cadence with deterministic jitter by pid
+            nxt = getattr(brain, "_next_think_t", None)
+            if nxt is None:
+                jitter = ((pid % 10) / 10.0) * THINK_DT  # spread inside a slice
+                brain._next_think_t = tnow + jitter
+                # seed a benign last input so bots stay idle until first think
+                brain._last_inputs = {
+                    "mx": 0.0, "mz": 0.0, "jump": False, "crouch": False, "walk": False,
+                    "fire": False, "interact": False,
+                    "yaw": math.degrees(getattr(self.gs.players[pid], "yaw_rad", 0.0)),
+                    "pitch": math.degrees(getattr(self.gs.players[pid], "pitch_rad", 0.0)),
+                }
+                self.inputs[pid] = brain._last_inputs
+                continue
+
+            if tnow >= brain._next_think_t:
+                try:
+                    inputs = brain.decide(self.gs.players[pid], self.gs, self.mapdata)
+                    brain._last_inputs = inputs
+                    self.inputs[pid] = inputs
+                except Exception as e:
+                    print(f"[bot_ai] pid={pid} decide() error: {e}")
+                    if hasattr(brain, "_last_inputs"):
+                        self.inputs[pid] = brain._last_inputs
+
+                # schedule next think
+                brain._next_think_t = tnow + THINK_DT
+            else:
+                # Between thinks, reuse the last inputs (holds steering & fire decisions steady)
+                if hasattr(brain, "_last_inputs"):
+                    self.inputs[pid] = brain._last_inputs
+
 
     async def run(self):
-        # Fill with bots to 10 players
-        if self.cfg["server"]["bot_fill"]:
-            while len(self.gs.players) < self.cfg["server"]["bot_per_team_target"]*2:
-                self.add_player(name=f"Bot{len(self.gs.players)+1}", is_bot=True)
+        self._ensure_bot_fill()
 
-        # Start TCP server
-        server = await asyncio.start_server(self.handle_client, host="0.0.0.0", port=self.cfg["server"]["port"])
-        print(f"[server] listening on 0.0.0.0:{self.cfg['server']['port']}")
+        tick_dt = 1.0 / float(self.cfg["server"]["tick_hz"])
+        # Physics stepping: split into a few substeps for robust contacts
+        substeps = 4
+        fixed_dt = tick_dt / substeps
 
-        # Start LAN discovery responder
-        asyncio.create_task(lan_discovery_server(self.cfg["server"]["name"], self.cfg["server"]["port"], self.cfg["server"]["lan_discovery_port"]))
+        while True:
+            t0 = now()
 
-        tick_dt = 1.0/self.cfg["server"]["tick_hz"]
-        snap_dt = 1.0/self.cfg["server"]["snapshot_hz"]
-        last_snap = time.time()
+            # Bots
+            self._update_bots()
 
-        async with server:
-            while True:
-                t0 = time.time()
-                # apply inputs + bots
-                for pid, p in list(self.gs.players.items()):
-                    if pid in self.bot_brains:
-                        ai_inp = self.bot_brains[pid].decide(p, self.gs, self.mapdata)
-                        self.process_input(p, ai_inp, tick_dt)
-                    else:
-                        inp = self.inputs.get(pid, {})
-                        self.process_input(p, inp, tick_dt)
+            # Apply inputs
+            for pid, p in list(self.gs.players.items()):
+                inp = self.inputs.get(pid, {})
+                self.process_input(p, inp, tick_dt)
 
-                self.update_flags()
+            # Step Bullet world with substeps
+            self.world.doPhysics(tick_dt, substeps, fixed_dt)
 
-                # broadcast snapshot
-                if (t0 - last_snap) >= snap_dt:
-                    snap = self.build_snapshot()
-                    for pid, w in list(self.clients.items()):
-                        try:
-                            await send_json(w, snap)
-                        except Exception:
-                            pass
-                    last_snap = t0
+            # Flags housekeeping
+            self._carry_flags_update()
+            self._dropped_flags_auto_return()
 
-                # sleep to maintain tick
-                elapsed = time.time() - t0
-                await asyncio.sleep(max(0.0, tick_dt - elapsed))
+            # Sync physics → game state, then unstick
+            self._after_physics_sync()
+            self._auto_unstick(tick_dt)
+
+            # Interactions
+            for pid, p in self.gs.players.items():
+                if not p.alive:
+                    continue
+                if bool(self.inputs.get(pid, {}).get("interact", False)):
+                    self._pickup_try(p)
+
+            # Respawns
+            for pid, p in list(self.gs.players.items()):
+                if (not p.alive) and now() >= p.respawn_at:
+                    self.respawn_player(pid)
+
+            # Safety kill-plane: if anyone somehow gets below the world, respawn them
+            kill_z = -10.0
+            for pid, p in list(self.gs.players.items()):
+                if p.alive and p.z < kill_z:
+                    self.respawn_player(pid)
+
+            # Win condition
+            self._check_captures()
+
+            # Tick pacing
+            await asyncio.sleep(max(0, tick_dt - (now() - t0)))
+
+# ---------- Entrypoint ----------
+async def main_async(args):
+    cfg = load_config(args.config)
+    server = LaserTagServer(cfg)
+
+    srv = await asyncio.start_server(server.handle_client, "0.0.0.0", cfg["server"]["port"])
+    print(f"[tcp] listening on :{cfg['server']['port']}")
+
+    loop = asyncio.get_running_loop()
+    stop = asyncio.Event()
+    for sig in (getattr(signal, "SIGINT", None), getattr(signal, "SIGTERM", None)):
+        if sig is not None:
+            try:
+                loop.add_signal_handler(sig, stop.set)
+            except NotImplementedError:
+                pass  # e.g., Windows
+
+    disc_task  = asyncio.create_task(lan_discovery_server(
+        cfg["server"]["name"], cfg["server"]["port"], cfg["server"]["lan_discovery_port"]), name="discovery")
+    bcast_task = asyncio.create_task(server._broadcast_loop(), name="broadcast")
+    run_task   = asyncio.create_task(server.run(), name="game_loop")
+
+    def _report_done(t: asyncio.Task):
+        exc = t.exception()
+        if exc:
+            print(f"[task:{t.get_name()}] crashed: {exc!r}")
+            stop.set()
+    for t in (disc_task, bcast_task, run_task):
+        t.add_done_callback(_report_done)
+
+    async with srv:
+        tcp_task = asyncio.create_task(srv.serve_forever(), name="tcp_server")
+        try:
+            await stop.wait()          # run until a signal or a task fails
+        finally:
+            tcp_task.cancel()
+            for t in (disc_task, bcast_task, run_task):
+                t.cancel()
+            await asyncio.gather(tcp_task, disc_task, bcast_task, run_task, return_exceptions=True)
+
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/defaults.json")
     args = ap.parse_args()
-    cfg = load_config(args.config)
-    srv = LaserTagServer(cfg)
     try:
-        asyncio.run(srv.run())
+        asyncio.run(main_async(args))
     except KeyboardInterrupt:
-        print("Server shutting down.")
+        pass
 
 if __name__ == "__main__":
     main()

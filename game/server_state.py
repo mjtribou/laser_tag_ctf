@@ -1,7 +1,7 @@
 # game/server_state.py
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Tuple, Optional
-import time, math, random
+import time
 
 from .constants import TEAM_RED, TEAM_BLUE, PLAYER_HEIGHT, PLAYER_RADIUS, FLAG_PICKUP_RADIUS, FLAG_RETURN_RADIUS, BASE_CAPTURE_RADIUS
 
@@ -11,13 +11,13 @@ class Player:
     name: str
     team: int
     x: float = 0.0
-    y: float = 0.9
-    z: float = 0.0
-    yaw: float = 0.0
-    pitch: float = 0.0
+    y: float = 0.0          # Panda Y (forward)
+    z: float = 0.9          # Panda Z (up)
+    yaw_rad: float = 0.0  # radians, wrapped [-pi,pi]
+    pitch_rad: float = 0.0  # radians
     vx: float = 0.0
     vy: float = 0.0
-    vz: float = 0.0
+    vz: float = 0.9          # Panda Z (up)
     on_ground: bool = True
     crouching: bool = False
     walking: bool = False
@@ -34,7 +34,7 @@ class Flag:
     carried_by: Optional[int] = None  # pid
     x: float = 0.0
     y: float = 0.0
-    z: float = 0.0
+    z: float = 0.9          # Panda Z (up)
     dropped_at_time: float = 0.0
 
 @dataclass
@@ -49,16 +49,4 @@ class GameState:
     match_over: bool = False
     winner: Optional[int] = None
     start_time: float = field(default_factory=time.time)
-
-def vec_len(x,y,z): return math.sqrt(x*x+y*y+z*z)
-
-def unit_vector_from_angles(yaw: float, pitch: float):
-    cy = math.cos(math.radians(yaw))
-    sy = math.sin(math.radians(yaw))
-    cp = math.cos(math.radians(pitch))
-    sp = math.sin(math.radians(pitch))
-    # Forward in XZ plane (Panda is y-forward; we keep xz for simplicity)
-    dx = cy * cp
-    dy = sp
-    dz = -sy * cp
-    return dx, dy, dz
+    
