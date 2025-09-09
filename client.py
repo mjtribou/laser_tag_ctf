@@ -1,5 +1,5 @@
 # client.py
-import sys, asyncio, json, time, math, argparse, threading
+import sys, asyncio, json, time, math, argparse, threading, random
 from typing import Dict, Any, List, Tuple
 from bisect import bisect, bisect_right
 
@@ -7,11 +7,253 @@ from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f, KeyboardButton, WindowProperties
 from panda3d.core import LColor, MouseButton, LineSegs, TextNode
+from panda3d.core import TextNode, TransparencyAttrib, NodePath, LVecBase4f
+from panda3d.core import CompassEffect, BillboardEffect, LColor
 
 from common.net import send_json, read_json, lan_discovery_broadcast
 from game.constants import TEAM_RED, TEAM_BLUE
 from game.map_gen import generate
 
+# ========== Cosmetics Manager ==========
+class CosmeticsManager:
+    """
+    Renders:
+      - Headgear (ballcap, top_hat, headband) per player, color from palette (excludes blue/orange).
+      - Nameplates (3D billboard text) for all or team-only; distance fade; toggle via config.
+      - Teammate caret marker always-on-top and visible through walls.
+
+    Usage:
+      self.cosmetics = CosmeticsManager(self)
+      self.cosmetics.attach(pid, player_np, name, team)
+      self.cosmetics.update()
+      self.cosmetics.detach(pid)
+    """
+    def __init__(self, client):
+        self.client = client
+        self.cfg = client.cfg.get("cosmetics", {})
+        self.by_pid = {}  # pid -> dict(root, head_anchor, headgear_np, name_np, caret_np, team)
+        # Cache palette and helpers
+        hg = self.cfg.get("headgear", {})
+        self.palette = {k: LVecBase4f(*v) for k, v in hg.get("palette", {}).items()}
+        self.disallow = set(hg.get("disallow_colors", []))
+        self.assignments = hg.get("assignments", {})
+        self.head_z = float(self.cfg.get("anchors", {}).get("head_z", 1.15))
+
+        # Try to load your unit cube model once; fall back to CardMaker if missing
+        self.box = None
+        try:
+            # Adjust path if your asset lives elsewhere (e.g., "assets/box.egg")
+            self.box = self.client.loader.loadModel("models/box.egg")
+        except Exception:
+            self.box = None  # we'll synthesize simple quads if needed
+
+    # ---------- Public API ----------
+    def attach(self, pid, player_np, name, team):
+        """Create cosmetic nodes for a player."""
+        if pid in self.by_pid:
+            self.detach(pid)
+
+        root = player_np.attachNewNode(f"cosmetics-{pid}")
+        head_anchor = root.attachNewNode("head_anchor")
+        head_anchor.setZ(self.head_z)
+
+        # Headgear
+        headgear_np = None
+        if self.cfg.get("headgear", {}).get("enabled", True):
+            headgear_np = head_anchor.attachNewNode("headgear")
+            htype, color = self._resolve_headgear(pid, name)
+            self._build_headgear(headgear_np, htype, color)
+
+        # Nameplate
+        name_np = None
+        if self.cfg.get("nameplates", {}).get("enabled", True):
+            show_for = self.cfg.get("nameplates", {}).get("for", "all")
+            if show_for == "all" or (show_for == "team_only" and self._is_teammate(team)):
+                name_np = self._make_nameplate(head_anchor, name)
+
+        # Teammate caret (always-on-top)
+        caret_np = None
+        tm_cfg = self.cfg.get("teammate_marker", {})
+        if tm_cfg.get("enabled", True) and self._is_teammate(team):
+            caret_np = self._make_caret(head_anchor, tm_cfg.get("style", "caret"))
+
+        self.by_pid[pid] = {
+            "root": root,
+            "head_anchor": head_anchor,
+            "headgear_np": headgear_np,
+            "name_np": name_np,
+            "caret_np": caret_np,
+            "team": team,
+            "name": name,
+        }
+
+    def detach(self, pid):
+        d = self.by_pid.pop(pid, None)
+        if not d: return
+        for k in ("caret_np", "name_np", "headgear_np", "root"):
+            np = d.get(k)
+            if np is not None:
+                np.removeNode()
+
+    def update(self):
+        """Call every frame to do distance-based fading/visibility."""
+        if not self.by_pid:
+            return
+        cam = self.client.camera  # ShowBase camera
+        render = self.client.render
+        # Settings
+        np_cfg = self.cfg.get("nameplates", {})
+        np_maxd = float(np_cfg.get("max_distance", 60.0))
+        np_fade = float(np_cfg.get("fade_start", 40.0))
+
+        tm_cfg = self.cfg.get("teammate_marker", {})
+        tm_maxd = float(tm_cfg.get("max_distance", 60.0))
+        tm_fade = float(tm_cfg.get("fade_start", 40.0))
+        tm_alpha = float(tm_cfg.get("alpha", 0.85))
+
+        for pid, d in self.by_pid.items():
+            head_anchor = d["head_anchor"]
+            head_world = head_anchor.getPos(render)
+            cam_pos = cam.getPos(render)
+            dist = (head_world - cam_pos).length()
+
+            # Nameplate fade
+            name_np = d.get("name_np")
+            if name_np is not None:
+                self._apply_fade(name_np, dist, np_fade, np_maxd, 1.0)
+
+            # Caret fade (with base alpha)
+            caret_np = d.get("caret_np")
+            if caret_np is not None:
+                self._apply_fade(caret_np, dist, tm_fade, tm_maxd, tm_alpha)
+
+    # ---------- Helpers ----------
+    def _is_teammate(self, team):
+        try:
+            return team == self.client.local_team
+        except Exception:
+            # Fallback if local_team not set yet
+            return False
+
+    def _resolve_headgear(self, pid, name):
+        hg = self.cfg.get("headgear", {})
+        default = hg.get("default", {"type": "ballcap", "color": "purple"})
+        # Name mapping first, then pid mapping, then default/random
+        spec = self.assignments.get(str(name)) or self.assignments.get(str(pid)) or default
+
+        htype = spec.get("type", "ballcap")
+        color_key = spec.get("color")
+        color = self._pick_color(color_key)
+        return htype, color
+
+    def _pick_color(self, preference):
+        # honor preference if valid and not disallowed
+        if preference and (preference in self.palette) and (preference not in self.disallow):
+            return self.palette[preference]
+        # Otherwise pick a random allowed key
+        keys = [k for k in self.palette.keys() if k not in self.disallow]
+        if not keys:
+            return LVecBase4f(1, 1, 1, 1)
+        return self.palette[random.choice(keys)]
+
+    def _apply_overlay_render_state(self, np, alpha=1.0, on_top=True):
+        np.setTransparency(TransparencyAttrib.M_alpha)
+        if on_top:
+            np.setDepthTest(False)
+            np.setDepthWrite(False)
+            np.setBin("fixed", 0)
+        if alpha is not None:
+            np.setColorScale(1, 1, 1, alpha)
+
+    def _apply_fade(self, np, dist, fade_start, max_dist, base_alpha):
+        if dist >= max_dist:
+            np.hide()
+            return
+        np.show()
+        if dist <= fade_start:
+            np.setColorScale(1, 1, 1, base_alpha)
+            return
+        # Linear fade to 0
+        t = (dist - fade_start) / max(0.0001, (max_dist - fade_start))
+        a = max(0.0, min(1.0, 1.0 - t)) * base_alpha
+        np.setColorScale(1, 1, 1, a)
+
+    # ---------- Builders ----------
+    def _make_nameplate(self, parent, name):
+        cfg = self.cfg.get("nameplates", {})
+        scale = float(cfg.get("scale", 0.6))
+        tn = TextNode(f"name-{name}")
+        tn.setText(name)
+        tn.setAlign(TextNode.ACenter)
+        tn.setShadow(0.03, 0.03)
+        tn.setShadowColor(0, 0, 0, 1)
+        tn.setTextColor(1, 1, 1, 1)
+        np = parent.attachNewNode(tn)
+        np.setBillboardPointEye()
+        np.setScale(scale)
+        np.setZ(0.18)  # float it a bit above the headgear
+        self._apply_overlay_render_state(np, alpha=1.0, on_top=True)  # render through walls
+        return np
+
+    def _make_caret(self, parent, style="caret"):
+        # Simple caret using text; reliable and cheap
+        tn = TextNode("caret")
+        tn.setText("^" if style == "caret" else "ˇ")
+        tn.setAlign(TextNode.ACenter)
+        tn.setShadow(0.02, 0.02)
+        tn.setShadowColor(0, 0, 0, 1)
+        tn.setTextColor(1, 1, 1, 1)
+        np = parent.attachNewNode(tn)
+        np.setBillboardPointEye()
+        scale = float(self.cfg.get("teammate_marker", {}).get("scale", 0.5))
+        np.setScale(scale)
+        np.setZ(0.34)
+        self._apply_overlay_render_state(np, alpha=self.cfg.get("teammate_marker", {}).get("alpha", 0.85), on_top=True)
+        return np
+
+    def _build_headgear(self, parent, htype, color):
+        # Build from scaled copies of a unit box
+        maker = self._copy_box
+
+        if htype == "top_hat":
+            brim = maker(parent, scale=(1.15, 1.15, 0.05), pos=(0, 0, 0.03), color=color)
+            crown = maker(parent, scale=(0.70, 0.70, 0.70), pos=(0, 0, 0.45), color=color)
+            # Slight edge darkening via color scale on crown for definition
+            crown.setColorScale(0.9*color.x, 0.9*color.y, 0.9*color.z, color.w)
+
+        elif htype == "headband":
+            z = -0.02
+            t = 0.06  # thickness
+            w = 0.75  # outside width
+            d = 0.05  # depth off head
+            # 4 thin slats forming a ring
+            maker(parent, scale=(w, t, 0.10), pos=(0,  0.45, z), color=color)  # front
+            maker(parent, scale=(w, t, 0.10), pos=(0, -0.45, z), color=color)  # back
+            maker(parent, scale=(t, w, 0.10), pos=( 0.45, 0,   z), color=color)  # right
+            maker(parent, scale=(t, w, 0.10), pos=(-0.45, 0,   z), color=color)  # left
+
+        else:  # "ballcap" (default)
+            crown = maker(parent, scale=(0.72, 0.72, 0.33), pos=(0, 0, 0.12), color=color)
+            brim  = maker(parent, scale=(0.72, 1.05, 0.05), pos=(0, 0.43, 0.02), color=color)
+
+    def _copy_box(self, parent, scale=(1,1,1), pos=(0,0,0), color=LVecBase4f(1,1,1,1)):
+        if self.box is not None:
+            np = self.box.copyTo(parent)
+        else:
+            # Minimal fallback: a tiny square “card” stack approximating a box
+            from panda3d.core import CardMaker
+            cm = CardMaker("quad")
+            cm.setFrame(-0.5, 0.5, -0.5, 0.5)
+            face = parent.attachNewNode(cm.generate())
+            # Give it some thickness illusion by duplicating slightly
+            face2 = face.copyTo(parent); face2.setY(0.999)
+            np = parent.attachNewNode("fallback_box")
+            face.reparentTo(np); face2.reparentTo(np)
+        np.setScale(*scale)
+        np.setPos(*pos)
+        np.setTransparency(TransparencyAttrib.M_alpha)
+        np.setColor(color)
+        return np
 
 def load_config(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
@@ -157,6 +399,10 @@ class GameApp(ShowBase):
         # player representations
         self.player_nodes = {}  # pid -> NodePath
 
+        # cosmetics
+        self.local_team = None  # filled post-handshake
+        self.cosmetics = CosmeticsManager(self)
+
         # camera init
         self.camera.setPos(0, -15, 3)
         self.mouse_locked = False
@@ -193,7 +439,9 @@ class GameApp(ShowBase):
             except Exception as e:
                 print(f"[net] connect failed: {e}")
                 return
-            # Only start the receive loop once the reader/writer are ready
+            # record my team (used by CosmeticsManager to show teammate markers)
+            self.local_team = self.client.team
+            # start the receive loop once the reader/writer are ready
             self.net_runner.run_coro(self.client.recv_state_loop(self.on_state))
 
         connect_future = self.net_runner.run_coro(self.client.connect(host, port))
@@ -458,16 +706,22 @@ class GameApp(ShowBase):
             if p0 is None:
                 # Only in later snapshot
                 px, py, pz = p1["x"], p1["y"], p1["z"]
+                roll = p1["roll"]
+                pitch = p1["pitch"]
                 yaw = p1["yaw"]
             elif p1 is None:
                 # Only in earlier snapshot
                 px, py, pz = p0["x"], p0["y"], p0["z"]
+                roll = p0["roll"]
+                pitch = p0["pitch"]
                 yaw = p0["yaw"]
             else:
                 # Interpolate positions & yaw
                 px = (1 - a) * p0["x"] + a * p1["x"]
                 py = (1 - a) * p0["y"] + a * p1["y"]
                 pz = (1 - a) * p0["z"] + a * p1["z"]
+                roll = _angle_lerp_deg(p0["roll"], p1["roll"], a)
+                pitch = _angle_lerp_deg(p0["pitch"], p1["pitch"], a)
                 yaw = _angle_lerp_deg(p0["yaw"], p1["yaw"], a)
 
             # Ensure a node exists
@@ -483,8 +737,12 @@ class GameApp(ShowBase):
                 node.reparentTo(self.render)
                 self.player_nodes[pid] = node
 
+                # attach cosmetics (headgear, nameplate, teammate caret)
+                name = (p1 or p0).get("name", f"PID{pid}")
+                self.cosmetics.attach(pid, node, name, team)
+
             node.setPos(px, py, pz)
-            node.setHpr(yaw, 0, 0)
+            node.setHpr(yaw, pitch, roll)
 
             alive_state = bool(((p1 or p0) or {}).get("alive", True))
             if not alive_state:
@@ -497,8 +755,12 @@ class GameApp(ShowBase):
         # Remove nodes for players no longer present
         for pid in list(self.player_nodes.keys()):
             if pid not in present:
+                # remove cosmetics first to avoid orphaned overlays
+                if hasattr(self, "cosmetics"):
+                    self.cosmetics.detach(pid)
                 self.player_nodes[pid].removeNode()
                 del self.player_nodes[pid]
+
 
         # Smooth camera **position** using our interpolated "me" (orientation from live mouse)
         if my_pid is not None:
@@ -530,6 +792,10 @@ class GameApp(ShowBase):
 
         # draw recent beams from the current snapshots
         self._render_beams(s0, s1, a)
+
+        # update cosmetics (distance fade + billboards)
+        if hasattr(self, "cosmetics"):
+            self.cosmetics.update()
 
         # --- Killfeed ingest & prune ---
         latest = s1 or s0

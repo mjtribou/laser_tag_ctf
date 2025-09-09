@@ -15,11 +15,8 @@ from game.transform import wrap_pi, deg_to_rad, rad_to_deg, forward_vector, loca
 from game.bot_ai import SimpleBotBrain
 
 # --- Panda3D / Bullet (headless) ---
-from panda3d.core import Vec3, Point3, NodePath, BitMask32
-from panda3d.bullet import (
-    BulletWorld, BulletRigidBodyNode, BulletBoxShape, BulletCharacterControllerNode,
-)
-
+from panda3d.core import Vec3, Point3, NodePath, BitMask32, LPoint3
+from panda3d.bullet import BulletWorld, BulletRigidBodyNode, BulletBoxShape, BulletCharacterControllerNode
 # ---------- Config ----------
 def load_config(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
@@ -73,6 +70,9 @@ class LaserTagServer:
         self._char_np: Dict[int, NodePath] = {}  # pid -> NodePath (character)
         self._char_node: Dict[int, BulletCharacterControllerNode] = {}
         self._node_id_to_pid: Dict[int, int] = {}  # id(BulletNode) -> pid (for ray hits)
+        self._corpse_np: Dict[int, NodePath] = {}
+        self._corpse_node: Dict[int, "BulletRigidBodyNode"] = {}
+        self._last_hitinfo: Dict[int, Tuple[Tuple[float,float,float], Tuple[float,float,float]]] = {}
 
         # Unstick state
         self._last_pos: Dict[int, Tuple[float,float,float]] = {}
@@ -239,19 +239,26 @@ class LaserTagServer:
         p = self.gs.players.get(pid)
         if not p:
             return
+
+        # Remove any corpse body
+        self._remove_corpse(pid)
+
+        # Choose a safe spawn and reset state
         x, y, z, yaw_rad = self.assign_spawn(p.team)
         p.x, p.y, p.z = x, y, z
         p.yaw_rad = yaw_rad
         p.pitch_rad = 0.0
-        p.vx = p.vy = p.vz = 0.0
-        p.on_ground = True
         p.alive = True
         p.respawn_at = 0.0
-        if pid in self._char_np:
+        p.on_ground = True
+        p.crouching = False
+        p.walking = False
+
+        # Recreate character controller if missing, else just move it
+        if pid not in self._char_np:
+            self._create_character(pid, (x, y, z), yaw_rad)
+        else:
             self._char_np[pid].setPos(x, y, z)
-        self._last_pos[pid] = (x, y, z)
-        self._last_safe_pos[pid] = (x, y, z)
-        self._stuck_since[pid] = 0.0
 
     # ---------- Game mechanics ----------
     def _drop_flag(self, team_flag: int, x: float, y: float, z: float):
@@ -339,55 +346,126 @@ class LaserTagServer:
             "t": now(),             # shot start time
         })
 
-    def _apply_hitscan(self, shooter: Player, spread_rad: float) -> Optional[int]:
-        rng = random.random
-        jx = (rng() + rng() + rng() - 1.5) * spread_rad
-        jy = (rng() + rng() + rng() - 1.5) * spread_rad
+    def _apply_hitscan(self, shooter: "Player", spread_rad: float):
+        """
+        Fire one hitscan ray with cone spread.
+        Returns (victim_pid, hit_point_xyz, dir_xyz) or (None, None, None).
+        Also ALWAYS enqueues a beam for the client to draw.
+        """
+        import math, random
 
-        yaw = shooter.yaw_rad + jx
-        pitch = shooter.pitch_rad + jy
-        fx, fy, fz = forward_vector(yaw, pitch)
+        # Shooter eye position (align with client camera)
+        ph = float(self.cfg["gameplay"]["player_height"])
+        sx, sy, sz = shooter.x, shooter.y, shooter.z + 0.30 * ph  # was +0.50
 
-        origin = Point3(shooter.x, shooter.y, shooter.z + 0.5)
-        max_range = float(self.cfg["gameplay"]["laser_range_m"])
-        end = Point3(shooter.x + fx * max_range, shooter.y + fy * max_range, shooter.z + 0.8 + fz * max_range)
+        fx, fy, fz = forward_vector(shooter.yaw_rad, shooter.pitch_rad)
 
-        res = self.world.rayTestAll(origin, end)
-        hits = list(res.getHits())
-        hits.sort(key=lambda h: h.getHitFraction())
+        # Random spread within a small cone (no numpy needed)
+        if spread_rad and spread_rad > 1e-6:
+            # make a simple ONB around f
+            rx, ry, rz = (-fy, fx, 0.0)  # right ≈ perpendicular to f in XY
+            rlen = math.sqrt(rx*rx + ry*ry + rz*rz) or 1.0
+            rx, ry, rz = rx/rlen, ry/rlen, 0.0
+            # up = right × f
+            ux, uy, uz = (ry*fz - rz*fy, rz*fx - rx*fz, rx*fy - ry*fx)
+            ulen = math.sqrt(ux*ux + uy*uy + uz*uz) or 1.0
+            ux, uy, uz = ux/ulen, uy/ulen, uz/ulen
 
-        hit_end = (end.x, end.y, end.z)
-        victim_pid: Optional[int] = None
+            a = random.uniform(0.0, 2.0 * math.pi)
+            r = (random.uniform(0.0, 1.0) ** 0.5) * spread_rad
+            ca, sa, cr, sr = math.cos(a), math.sin(a), math.cos(r), math.sin(r)
+            fx, fy, fz = (
+                fx*cr + sr*(rx*ca + ux*sa),
+                fy*cr + sr*(ry*ca + uy*sa),
+                fz*cr + sr*(rz*ca + uz*sa),
+            )
 
-        ff = bool(self.cfg["server"].get("friendly_fire", False))
-        shooter_team = shooter.team
+        # Ray end
+        max_range = float(self.cfg["gameplay"].get("laser_range_m", 80.0))
+        ex, ey, ez = sx + fx*max_range, sy + fy*max_range, sz + fz*max_range
 
-        for h in hits:
-            node = h.getNode()
-            np = NodePath(node)
-            kind = np.getPythonTag("kind") if np.hasPythonTag("kind") else None
-            hp = h.getHitPos()
-            hp_t = (hp.x, hp.y, hp.z)
+        Dx, Dy, Dz = (ex - sx), (ey - sy), (ez - sz)
+        Dlen2 = Dx*Dx + Dy*Dy + Dz*Dz
+        if Dlen2 <= 1e-12:
+            self._add_beam(shooter.team, (sx, sy, sz), (ex, ey, ez))
+            return None, None, (fx, fy, fz)
 
-            if kind == "player":
-                pid = np.getPythonTag("pid") if np.hasPythonTag("pid") else self._node_id_to_pid.get(id(node))
-                if pid is None or pid == shooter.pid:
+        # ---- Bullet wall-occlusion: first static block along the ray ----
+        # We filter hits to NodePaths tagged kind="static" by _attach_static_box()
+        t_wall = None
+        wall_point = None
+        EPS_HIT = 1e-4
+        try:
+            res = self.world.rayTestAll(LPoint3(sx, sy, sz), LPoint3(ex, ey, ez))
+            # Find the closest STATIC hit strictly after the start (avoid self-grazes)
+            for hit in res.getHits():
+                np_hit = NodePath(hit.getNode())
+                if np_hit.is_empty():
                     continue
-                tgt = self.gs.players.get(pid)
-                if not tgt or not tgt.alive:
+                if np_hit.getPythonTag("kind") != "static":
+                    continue  # ignore players, dynamic bodies, etc.
+                frac = float(hit.getHitFraction())
+                if frac <= EPS_HIT:
                     continue
-                if (not ff) and tgt.team == shooter_team:
-                    hit_end = hp_t
-                    break
-                victim_pid = pid
-                hit_end = hp_t
-                break
-            else:
-                hit_end = hp_t
-                break
+                if (t_wall is None) or (frac < t_wall):
+                    t_wall = frac
+                    wall_point = (sx + Dx*frac, sy + Dy*frac, sz + Dz*frac)
+        except Exception:
+            # If Bullet isn't available for some reason, we just treat as no wall
+            pass
 
-        self._add_beam(shooter.team, (origin.x, origin.y, origin.z), hit_end)
-        return victim_pid
+        # ---- Player AABB hit test (kept from your version) ----
+        friendly_fire = bool(self.cfg["gameplay"].get("friendly_fire", False))
+        r = float(self.cfg["gameplay"]["player_radius"])
+        hz = 0.5 * ph  # half-height
+        eps = 0.0
+        hx, hy, hz = max(0.0, r - eps), max(0.0, r - eps), max(0.0, hz - eps)
+
+        def hit_t_for_aabb(cx, cy, cz, hx, hy, hz):
+            # Slab method: find intersection interval t∈[0,1] across X,Y,Z slabs
+            tmin, tmax = 0.0, 1.0
+            for S, D, C, H in ((sx, Dx, cx, hx), (sy, Dy, cy, hy), (sz, Dz, cz, hz)):
+                if abs(D) < 1e-8:
+                    if abs(S - C) > H:
+                        return None  # ray parallel & outside slab
+                    continue
+                invD = 1.0 / D
+                t1 = ((C - H) - S) * invD
+                t2 = ((C + H) - S) * invD
+                if t1 > t2: t1, t2 = t2, t1
+                if t1 > tmin: tmin = t1
+                if t2 < tmax: tmax = t2
+                if tmax < tmin: return None
+            if tmax < 0.0 or tmin > 1.0:
+                return None
+            return max(tmin, 0.0)
+
+        victim_pid, t_player = None, None
+        for pid, v in self.gs.players.items():
+            if pid == shooter.pid:               continue
+            if not v.alive:                      continue
+            if (not friendly_fire) and (v.team == shooter.team):  continue
+            t = hit_t_for_aabb(v.x, v.y, v.z, hx, hy, hz)
+            if t is not None and (t_player is None or t < t_player):
+                t_player, victim_pid = t, pid
+
+        # ---- Decide outcome with occlusion ----
+        if (t_player is not None) and ((t_wall is None) or (t_player <= t_wall - EPS_HIT)):
+            # Player is closer than any wall -> register hit
+            hit_point = (sx + Dx*t_player, sy + Dy*t_player, sz + Dz*t_player)
+            beam_end  = hit_point
+        else:
+            # Blocked by wall or no player -> stop beam on the wall or go full range
+            hit_point = None
+            beam_end  = wall_point if wall_point is not None else (ex, ey, ez)
+            victim_pid = None
+
+        # Always enqueue a beam so the client can draw it
+        self._add_beam(shooter.team, (sx, sy, sz), beam_end)
+
+        # Return normalized direction (already nearly unit, but normalize anyway)
+        dlen = math.sqrt(fx*fx + fy*fy + fz*fz) or 1.0
+        return victim_pid, hit_point, (fx/dlen, fy/dlen, fz/dlen)
 
     # ---------- Input & per-tick ----------
     def _movement_speed(self, p: Player, walk: bool, crouch: bool) -> float:
@@ -442,53 +520,134 @@ class LaserTagServer:
                 intent_mag = min(1.0, math.hypot(mx, mz))
                 spread_deg = base + move_factor * intent_mag + (crouch_bonus if crouch else 0.0) + p.recoil_accum
                 spread_rad = math.radians(max(0.0, spread_deg))
-                victim = self._apply_hitscan(p, spread_rad)
+                victim_pid = None
+                hit_pt = None
+                shot_dir = None
+
+                res = self._apply_hitscan(p, spread_rad)
+                if isinstance(res, tuple) and len(res) == 3:
+                    victim_pid, hit_pt, shot_dir = res
+                elif isinstance(res, int):
+                    victim_pid = res
+
                 p.recoil_accum = min(4.0, p.recoil_accum + float(self.cfg["gameplay"]["recoil_per_shot_deg"]))
-                if victim is not None:
-                    self._tag_player(victim, attacker=p.pid)
+
+                if victim_pid is not None:
+                    self._tag_player(victim_pid, attacker=p.pid, hit_point=hit_pt, shot_dir=shot_dir)
 
         p.recoil_accum = max(0.0, p.recoil_accum - float(self.cfg["gameplay"]["recoil_decay_per_sec_deg"]) * dt)
 
-    def _tag_player(self, victim_pid: int, attacker: Optional[int] = None):
+    def _tag_player(self, victim_pid: int, attacker: Optional[int] = None,
+                    hit_point: Optional[Tuple[float,float,float]] = None,
+                    shot_dir: Optional[Tuple[float,float,float]] = None):
         v = self.gs.players.get(victim_pid)
         if not v or not v.alive:
             return
-        # Mark dead + schedule respawn (server already skips dead players’ inputs). :contentReference[oaicite:2]{index=2}
-        v.alive = False
-        v.respawn_at = now() + float(self.cfg["server"]["respawn_seconds"])  # existing behavior :contentReference[oaicite:3]{index=3}
 
-        # --- Killfeed event ---
+        # Mark dead + schedule respawn (unchanged)
+        v.alive = False
+        v.respawn_at = now() + float(self.cfg["server"]["respawn_seconds"])
+
+        # --- Killfeed (unchanged) ---
         try:
-            v = self.gs.players.get(victim_pid)
-            a = self.gs.players.get(attacker_pid) if attacker_pid is not None else None
+            a = self.gs.players.get(attacker) if attacker is not None else None
             evt = {
                 "t": now(),
-                "attacker": attacker_pid,
+                "attacker": attacker,
                 "attacker_name": (a.name if a else "World"),
                 "victim": victim_pid,
-                "victim_name": (v.name if v else "Unknown"),
+                "victim_name": v.name,
             }
             self.killfeed.append(evt)
-            # keep a small rolling buffer (max ~3× UI capacity)
             max_keep = int(self.cfg.get("hud", {}).get("killfeed_max", 6)) * 3
             max_keep = max(12, max_keep)
             if len(self.killfeed) > max_keep:
                 self.killfeed = self.killfeed[-max_keep:]
-        except Exception:
-            pass
+        except Exception as e:
+            print(e)
 
-        # HARD FREEZE: zero character controller movement immediately so they don't coast for respawn duration.
+        # Stop any character movement immediately
         ch = self._char_node.get(victim_pid)
         if ch is not None:
             try:
-                ch.setLinearMovement(Vec3(0.0, 0.0, 0.0), True)  # movement is commanded per-tick elsewhere; zero it now
+                ch.setLinearMovement(Vec3(0.0, 0.0, 0.0), True)
             except Exception:
                 pass
 
-        # Drop any carried flag at current position
+        # Drop any carried flag where they are
         for team_flag, fl in self.gs.flags.items():
             if fl.carried_by == victim_pid:
                 self._drop_flag(team_flag, v.x, v.y, v.z)
+
+        # === NEW: swap KCC -> dynamic rigid body "corpse" ===
+        # Remove character controller from world to avoid double-collision
+        self._remove_character(victim_pid)
+
+        pr = float(self.cfg["gameplay"]["player_radius"])
+        ph = float(self.cfg["gameplay"]["player_height"])
+        rag = self.cfg.get("ragdoll", {})
+        mass = float(rag.get("mass_kg", 75.0))
+        fric = float(rag.get("friction", 0.9))
+        rest = float(rag.get("restitution", 0.05))
+        ldmp = float(rag.get("linear_damping", 0.04))
+        admp = float(rag.get("angular_damping", 0.05))
+        Jmag = float(rag.get("knockback_impulse", 140.0))  # N·s
+
+        # Box roughly matching player hull (axis-aligned for simplicity)
+        shape = BulletBoxShape(Vec3(pr, pr, 0.5 * ph))
+        rb = BulletRigidBodyNode(f"corpse-{victim_pid}")
+        rb.setMass(mass)
+        rb.addShape(shape)
+        rb.setFriction(fric)
+        rb.setRestitution(rest)
+        rb.setLinearDamping(ldmp)
+        rb.setAngularDamping(admp)
+        rb.setIntoCollideMask(MASK_SOLID)
+
+        np = self._root.attachNewNode(rb)
+        np.setPos(v.x, v.y, v.z)  # v.z is the player center in this codebase
+        np.setPythonTag("kind", "corpse")
+        np.setPythonTag("pid", victim_pid)
+
+        self.world.attachRigidBody(rb)
+        self._corpse_np[victim_pid] = np
+        self._corpse_node[victim_pid] = rb
+
+        # Apply impulse at impact point to blast backward
+        if hit_point is not None and shot_dir is not None:
+            # Blast AWAY from the shooter (along shot_dir), not toward them
+            dx, dy, dz = shot_dir
+            L = max(1e-6, math.sqrt(dx*dx + dy*dy + dz*dz))
+            jx, jy, jz = (dx / L * Jmag, dy / L * Jmag, dz / L * Jmag)
+
+            # Lever arm from COM to the actual hit point (world space)
+            rel = Point3(hit_point[0], hit_point[1], hit_point[2]) - np.getPos()
+
+            # Apply linear impulse at contact offset; Bullet induces spin via r × J
+            rb.applyImpulse(Vec3(jx, jy, jz), rel)
+
+            # Base torque from off-center hit
+            tau = Vec3(rel).cross(Vec3(jx, jy, jz))
+
+            # Add a small twist perpendicular to the beam to guarantee visible rotation
+            axis = Vec3(dx, dy, dz).cross(Vec3(0, 0, 1))
+            if axis.length_squared() < 1e-6:
+                axis = Vec3(1, 0, 0)
+            axis.normalize()
+
+            rb.applyTorqueImpulse(tau)
+        else:
+            # (keep your existing fallback block)
+            ax, ay, az = (self.gs.players[attacker].x, self.gs.players[attacker].y, self.gs.players[attacker].z) if attacker in self.gs.players else (v.x, v.y - 1.0, v.z)
+            dx, dy, dz = (v.x - ax, v.y - ay, max(0.2, v.z - az))
+            L = max(1e-6, math.sqrt(dx*dx + dy*dy + dz*dz))
+            rb.applyImpulse(Vec3(dx / L * Jmag, dy / L * Jmag, dz / L * Jmag), Point3(0, 0, 0))
+            spin = 0.25 * Jmag
+            rb.applyTorqueImpulse(Vec3(
+                random.uniform(-spin, spin),
+                random.uniform(-spin, spin),
+                random.uniform(-spin, spin)
+            ))
 
     def _auto_unstick(self, dt: float):
         for pid, p in self.gs.players.items():
@@ -532,17 +691,26 @@ class LaserTagServer:
                 self._stuck_since[pid] = 0.0
 
     def _after_physics_sync(self):
-        # Sync character nodes → Player state
+        # Alive players: sync from character controller nodes (unchanged)
         for pid, p in self.gs.players.items():
             np = self._char_np.get(pid)
+            if np is not None:
+                pos = np.getPos()
+                p.x, p.y, p.z = float(pos.x), float(pos.y), float(pos.z)
+                try:
+                    p.on_ground = bool(self._char_node[pid].isOnGround())
+                except Exception:
+                    p.on_ground = p.z <= 0.01
+
+        # Dead players: sync from their ragdoll rigid body if present
+        for pid, p in self.gs.players.items():
+            if p.alive:
+                continue
+            np = self._corpse_np.get(pid)
             if np is None:
                 continue
             pos = np.getPos()
             p.x, p.y, p.z = float(pos.x), float(pos.y), float(pos.z)
-            try:
-                p.on_ground = bool(self._char_node[pid].isOnGround())
-            except Exception:
-                p.on_ground = p.z <= 0.01
 
         # Lightweight player-player separation for KCCs
         alive_pids = [pid for pid, pp in self.gs.players.items() if pp.alive]
@@ -562,6 +730,17 @@ class LaserTagServer:
                     npa, npb = self._char_np[pa.pid], self._char_np[pb.pid]
                     npa.setPos(npa.getX() - ux * push, npa.getY() - uy * push, npa.getZ())
                     npb.setPos(npb.getX() + ux * push, npb.getY() + uy * push, npb.getZ())
+
+    def _remove_corpse(self, pid: int):
+        rb = self._corpse_node.pop(pid, None)
+        np = self._corpse_np.pop(pid, None)
+        if rb is not None:
+            try:
+                self.world.removeRigidBody(rb)
+            except Exception:
+                pass
+        if np is not None:
+            np.removeNode()
 
     # ---------- Snapshots ----------
     def _trim_old_beams(self):
@@ -586,12 +765,26 @@ class LaserTagServer:
         self._trim_old_beams()
         players = []
         for p in self.gs.players.values():
-            players.append({
+            d = {
                 "pid": p.pid, "name": p.name, "team": p.team,
                 "x": p.x, "y": p.y, "z": p.z,
-                "yaw": rad_to_deg(p.yaw_rad), "pitch": rad_to_deg(p.pitch_rad),
                 "alive": p.alive,
-            })
+            }
+            if p.alive:
+                d["yaw"]   = rad_to_deg(p.yaw_rad)
+                d["pitch"] = rad_to_deg(p.pitch_rad)
+                d["roll"]  = 0.0
+            else:
+                np = self._corpse_np.get(p.pid)
+                if np is not None:
+                    h, pu, r = np.getHpr()  # degrees
+                    d["yaw"], d["pitch"], d["roll"] = float(h), float(pu), float(r)
+                else:
+                    # fallback to last commanded angles if corpse NP is missing
+                    d["yaw"] = rad_to_deg(p.yaw_rad)
+                    d["pitch"] = rad_to_deg(p.pitch_rad)
+                    d["roll"] = 0.0
+            players.append(d)
 
         flags = []
         for fl in self.gs.flags.values():
