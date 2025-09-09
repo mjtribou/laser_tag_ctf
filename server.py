@@ -387,7 +387,7 @@ class LaserTagServer:
         Dx, Dy, Dz = (ex - sx), (ey - sy), (ez - sz)
         Dlen2 = Dx*Dx + Dy*Dy + Dz*Dz
         if Dlen2 <= 1e-12:
-            self._add_beam(shooter.team, (sx, sy, sz), (ex, ey, ez))
+            self._add_beam(shooter.team, (sx, sy, sz - 0.05 * ph), (ex, ey, ez))
             return None, None, (fx, fy, fz)
 
         # ---- Bullet wall-occlusion: first static block along the ray ----
@@ -461,7 +461,7 @@ class LaserTagServer:
             victim_pid = None
 
         # Always enqueue a beam so the client can draw it
-        self._add_beam(shooter.team, (sx, sy, sz), beam_end)
+        self._add_beam(shooter.team, (sx, sy, sz - 0.05 * ph), beam_end)
 
         # Return normalized direction (already nearly unit, but normalize anyway)
         dlen = math.sqrt(fx*fx + fy*fy + fz*fz) or 1.0
