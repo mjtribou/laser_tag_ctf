@@ -202,6 +202,21 @@ class AStarBotBrain:
         # If we haven't gotten closer for a while and we're not basically there, call it a stall.
         return (now_t - self._last_progress_t) > 1.5 and dist > 0.8
 
+    def _nearest_enemy(self, me, gs, max_range: float = 45.0):
+        """Return nearest alive enemy Player within max_range (meters), else None."""
+        best = None
+        best_d2 = max_range * max_range
+        for pid, p in gs.players.items():
+            if p.team == me.team or not p.alive:
+                continue
+            dx = p.x - me.x
+            dy = p.y - me.y
+            d2 = dx*dx + dy*dy
+            if d2 < best_d2:
+                best_d2 = d2
+                best = p
+        return best
+
     def decide(self, me, gs, mapdata) -> Dict:
         # Ensure nav grid + cached flow fields are ready
         self._ensure_nav(mapdata)
@@ -270,5 +285,21 @@ class AStarBotBrain:
 
         # Interact near flags (pickup/return handled server-side)
         inputs["interact"] = self._flag_interact_needed(me, gs, mapdata)
+
+        # --- Opportunistic shooting: face nearest enemy and fire when aligned ---
+        tgt = self._nearest_enemy(me, gs, max_range=45.0)
+        if tgt is not None:
+            dx = tgt.x - me.x
+            dy = tgt.y - me.y
+            desired_yaw = math.atan2(-dx, dy)  # Panda H=0 along +Y
+            # turn faster when engaging
+            err = abs(_wrap_pi(desired_yaw - me.yaw_rad))
+            if err < math.radians(50):
+                me.yaw_rad = _turn_toward(me.yaw_rad, desired_yaw,
+                                          rate_rad_per_s=math.radians(360), dt=0.016)
+                inputs["yaw"] = math.degrees(me.yaw_rad)
+            # pull the trigger when reasonably aligned
+            if err < math.radians(10):
+                inputs["fire"] = True
 
         return inputs
