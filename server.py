@@ -2,6 +2,7 @@
 # Bullet ray tests for lasers, safe-spawn, auto-unstick, and shared solid collide-mask fix.
 import asyncio, json, math, time, random, argparse, signal
 from typing import Dict, Any, List, Tuple, Optional
+from bisect import bisect_right
 
 from common.net import read_json, send_json, lan_discovery_server
 from game.constants import (
@@ -60,6 +61,7 @@ class LaserTagServer:
         self.inputs: Dict[int, Dict[str, Any]] = {}
         self.bot_brains: Dict[int, SimpleBotBrain] = {}
         self.recent_beams: List[Dict[str, Any]] = []
+        self._state_history: List[Tuple[float, Dict[int, Tuple[float,float,float]]]] = []
 
         # ---- Bullet world ----
         self._root = NodePath("world")
@@ -331,6 +333,44 @@ class LaserTagServer:
                 fl.x, fl.y, fl.z = fx, fy, fz
                 print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
 
+    # ---------- Lag-comp history ----------
+    def _record_history(self):
+        snap = {pid: (p.x, p.y, p.z) for pid, p in self.gs.players.items()}
+        t = now()
+        self._state_history.append((t, snap))
+        # keep ~1s of history
+        while self._state_history and t - self._state_history[0][0] > 1.0:
+            self._state_history.pop(0)
+
+    def _positions_at(self, t: float) -> Dict[int, Tuple[float, float, float]]:
+        if not self._state_history:
+            return {pid: (p.x, p.y, p.z) for pid, p in self.gs.players.items()}
+        times = [ts for ts, _ in self._state_history]
+        idx = bisect_right(times, t) - 1
+        if idx < 0:
+            return dict(self._state_history[0][1])
+        if idx >= len(self._state_history) - 1:
+            return dict(self._state_history[-1][1])
+        t0, s0 = self._state_history[idx]
+        t1, s1 = self._state_history[idx + 1]
+        if t1 <= t0:
+            return dict(s1)
+        a = (t - t0) / (t1 - t0)
+        pos = {}
+        keys = set(s0.keys()) | set(s1.keys())
+        for pid in keys:
+            p0 = s0.get(pid)
+            p1 = s1.get(pid)
+            if p0 and p1:
+                pos[pid] = (
+                    (1 - a) * p0[0] + a * p1[0],
+                    (1 - a) * p0[1] + a * p1[1],
+                    (1 - a) * p0[2] + a * p1[2],
+                )
+            else:
+                pos[pid] = p1 or p0
+        return pos
+
     # ---------- Firing / hitscan ----------
     def _add_beam(self, team: int, start: Tuple[float,float,float], end: Tuple[float,float,float]):
         sx, sy, sz = start
@@ -346,7 +386,7 @@ class LaserTagServer:
             "t": now(),             # shot start time
         })
 
-    def _apply_hitscan(self, shooter: "Player", spread_rad: float):
+    def _apply_hitscan(self, shooter: "Player", spread_rad: float, fire_time: Optional[float] = None):
         """
         Fire one hitscan ray with cone spread.
         Returns (victim_pid, hit_point_xyz, dir_xyz) or (None, None, None).
@@ -354,9 +394,12 @@ class LaserTagServer:
         """
         import math, random
 
+        positions = self._positions_at(fire_time) if fire_time is not None else {pid: (p.x, p.y, p.z) for pid, p in self.gs.players.items()}
+
         # Shooter eye position (align with client camera)
         ph = float(self.cfg["gameplay"]["player_height"])
-        sx, sy, sz = shooter.x, shooter.y, shooter.z + 0.30 * ph  # was +0.50
+        sx, sy, sz = positions.get(shooter.pid, (shooter.x, shooter.y, shooter.z))
+        sx, sy, sz = sx, sy, sz + 0.30 * ph  # was +0.50
 
         fx, fy, fz = forward_vector(shooter.yaw_rad, shooter.pitch_rad)
 
@@ -445,7 +488,8 @@ class LaserTagServer:
             if pid == shooter.pid:               continue
             if not v.alive:                      continue
             if (not friendly_fire) and (v.team == shooter.team):  continue
-            t = hit_t_for_aabb(v.x, v.y, v.z, hx, hy, hz)
+            vx, vy, vz = positions.get(pid, (v.x, v.y, v.z))
+            t = hit_t_for_aabb(vx, vy, vz, hx, hy, hz)
             if t is not None and (t_player is None or t < t_player):
                 t_player, victim_pid = t, pid
 
@@ -528,7 +572,8 @@ class LaserTagServer:
                 hit_pt = None
                 shot_dir = None
 
-                res = self._apply_hitscan(p, spread_rad)
+                fire_t = float(inp.get("fire_t", now()))
+                res = self._apply_hitscan(p, spread_rad, fire_time=fire_t)
                 if isinstance(res, tuple) and len(res) == 3:
                     victim_pid, hit_pt, shot_dir = res
                 elif isinstance(res, int):
@@ -945,6 +990,7 @@ class LaserTagServer:
             # Sync physics → game state, then unstick
             self._after_physics_sync()
             self._auto_unstick(tick_dt)
+            self._record_history()
 
             # Interactions
             for pid, p in self.gs.players.items():

@@ -320,7 +320,7 @@ def _angle_lerp_deg(a: float, b: float, t: float) -> float:
 
 
 class GameApp(ShowBase):
-    def __init__(self, cfg, host: str, port: int, name: str, interp_delay: float):
+    def __init__(self, cfg, host: str, port: int, name: str, interp_delay: float, interp_predict: float = 0.0):
         ShowBase.__init__(self)
         self.set_background_color(0.05, 0.05, 0.07, 1)
         self.disableMouse()
@@ -342,7 +342,9 @@ class GameApp(ShowBase):
         self.snap_times: List[float] = []
         self.latest_server_time: float = 0.0
         self.interp_delay: float = max(0.0, float(interp_delay))
-        print(f"[init] Interp delay = {int(self.interp_delay * 1000)} ms")
+        self.interp_predict: float = max(0.0, float(interp_predict))
+        print(f"[init] Interp delay = {int(self.interp_delay * 1000)} ms, predict = {int(self.interp_predict*1000)} ms")
+        self.render_time: float = 0.0
 
         # lighting
         dlight = DirectionalLight("dlight")
@@ -521,12 +523,12 @@ class GameApp(ShowBase):
         """
         if not self.snapshots:
             return None, None, 0.0
-        if len(self.snapshots) == 1 or self.interp_delay <= 1e-6:
-            # No buffering or only one snapshot: render as-is.
+        if len(self.snapshots) == 1:
+            # Only one snapshot: render as-is.
             s = self.snapshots[-1]
             return s, s, 0.0
 
-        render_time = self.latest_server_time - self.interp_delay
+        render_time = self.render_time
 
         # Find index i such that snap_times[i] <= render_time < snap_times[i+1]
         i = bisect_right(self.snap_times, render_time) - 1
@@ -570,7 +572,7 @@ class GameApp(ShowBase):
         thickness = float(vis.get("beam_thickness_px", 3.0))
 
         # Render clock (server-time) that our interpolation already uses
-        render_time = self.latest_server_time - self.interp_delay  # same clock as get_snapshots_for_render()
+        render_time = self.render_time  # same clock as get_snapshots_for_render()
 
         col_red  = self.cfg["colors"]["team_red"]
         col_blue = self.cfg["colors"]["team_blue"]
@@ -681,6 +683,13 @@ class GameApp(ShowBase):
         self._layout_killfeed()
 
     def update_task(self, task):
+        # advance smoothed render_time toward latest snapshot time
+        target = self.latest_server_time - self.interp_delay + self.interp_predict
+        dt = getattr(task, "dt", 0.0)
+        if self.render_time == 0.0:
+            self.render_time = target
+        else:
+            self.render_time = min(target, self.render_time + dt)
         # === Interpolate and render ===
         s0, s1, a = self._get_interp_pair()
 
@@ -855,6 +864,7 @@ class GameApp(ShowBase):
 
         if self.mouseWatcherNode.is_button_down(MouseButton.one()):
             data["fire"] = True
+            data["fire_t"] = self.render_time
 
         if self.client.writer:
             self.net_runner.run_coro(self.client.send_input(data))
@@ -883,6 +893,12 @@ def main():
         default=0.10,
         help="Seconds of render-time interpolation delay buffer (e.g., 0.10 = 100 ms)",
     )
+    ap.add_argument(
+        "--interp_predict",
+        type=float,
+        default=0.0,
+        help="Seconds of render-time prediction/extrapolation",
+    )
     args = ap.parse_args()
     cfg = load_config(args.config)
 
@@ -895,7 +911,7 @@ def main():
     if not port:
         port = cfg["server"]["port"]
 
-    app = GameApp(cfg, host=host, port=port, name=args.name, interp_delay=args.interp_delay)
+    app = GameApp(cfg, host=host, port=port, name=args.name, interp_delay=args.interp_delay, interp_predict=args.interp_predict)
     app.run()
 
 
