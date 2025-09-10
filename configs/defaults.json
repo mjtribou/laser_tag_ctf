@@ -37,7 +37,9 @@
     "grenade_lob_speed": 0.0,
     "grenade_fuse": 3.0,
     "grenade_radius": 10.0,
-    "grenade_knockback": 3.0
+    "grenade_knockback": 3.0,
+    "shots_per_mag": 20,
+    "reload_seconds": 1.5
   },
   "cubes": {
     "size": 1.0,

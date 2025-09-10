@@ -26,6 +26,8 @@ class Player:
     carrying_flag: Optional[int] = None  # 0 red flag, 1 blue flag (team id)
     last_fire_time: float = 0.0
     recoil_accum: float = 0.0
+    shots_remaining: int = 0
+    reload_end: float = 0.0
 
 @dataclass
 class Flag:

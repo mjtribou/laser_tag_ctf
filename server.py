@@ -216,7 +216,8 @@ class LaserTagServer:
         self.next_pid += 1
 
         x, y, z, yaw_rad = self.assign_spawn(team)
-        p = Player(pid=pid, name=name, team=team, x=x, y=y, z=z, yaw_rad=yaw_rad, pitch_rad=0.0, on_ground=True)
+        shots_per_mag = int(self.cfg["gameplay"].get("shots_per_mag", 20))
+        p = Player(pid=pid, name=name, team=team, x=x, y=y, z=z, yaw_rad=yaw_rad, pitch_rad=0.0, on_ground=True, shots_remaining=shots_per_mag, reload_end=0.0)
         self.gs.players[pid] = p
 
         self._create_character(pid, (x, y, z), yaw_rad)
@@ -262,6 +263,8 @@ class LaserTagServer:
         p.on_ground = True
         p.crouching = False
         p.walking = False
+        p.shots_remaining = int(self.cfg["gameplay"].get("shots_per_mag", 20))
+        p.reload_end = 0.0
 
         # Recreate character controller if missing, else just move it
         if pid not in self._char_np:
@@ -581,6 +584,12 @@ class LaserTagServer:
         if not p.alive:
             return
 
+        shots_per_mag = int(self.cfg["gameplay"].get("shots_per_mag", 20))
+        reload_sec = float(self.cfg["gameplay"].get("reload_seconds", 1.5))
+        now_t = now()
+        if p.shots_remaining <= 0 and now_t >= p.reload_end:
+            p.shots_remaining = shots_per_mag
+
         p.yaw_rad = wrap_pi(deg_to_rad(float(inp.get("yaw", rad_to_deg(p.yaw_rad)))))
         p.pitch_rad = wrap_pi(deg_to_rad(float(inp.get("pitch", rad_to_deg(p.pitch_rad)))))
 
@@ -619,12 +628,13 @@ class LaserTagServer:
             self._spawn_grenade(p, power)
             inp["grenade"] = 0.0
 
-        if bool(inp.get("fire", False)):
+        if bool(inp.get("fire", False)) and p.shots_remaining > 0 and now_t >= p.reload_end:
             t = now()
             rof = float(self.cfg["gameplay"]["rapid_fire_rate_hz"])
             min_dt = 1.0 / max(1e-6, rof)
             if t - p.last_fire_time >= min_dt:
                 p.last_fire_time = t
+                p.shots_remaining -= 1
                 base = float(self.cfg["gameplay"]["base_spread_deg"])
                 move_factor = float(self.cfg["gameplay"]["spread_move_factor"])
                 crouch_bonus = float(self.cfg["gameplay"]["spread_crouch_bonus"])
@@ -643,6 +653,8 @@ class LaserTagServer:
                     victim_pid = res
 
                 p.recoil_accum = min(4.0, p.recoil_accum + float(self.cfg["gameplay"]["recoil_per_shot_deg"]))
+                if p.shots_remaining == 0:
+                    p.reload_end = t + reload_sec
 
                 if victim_pid is not None:
                     self._tag_player(victim_pid, attacker=p.pid, hit_point=hit_pt, shot_dir=shot_dir)
@@ -886,12 +898,15 @@ class LaserTagServer:
 
     def build_snapshot(self) -> Dict[str, Any]:
         self._trim_old_beams()
+        now_t = now()
         players = []
         for p in self.gs.players.values():
             d = {
                 "pid": p.pid, "name": p.name, "team": p.team,
                 "x": p.x, "y": p.y, "z": p.z,
                 "alive": p.alive,
+                "shots": p.shots_remaining,
+                "reload": max(0.0, p.reload_end - now_t),
             }
             if p.alive:
                 d["yaw"]   = rad_to_deg(p.yaw_rad)
