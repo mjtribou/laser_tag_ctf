@@ -400,6 +400,8 @@ class GameApp(ShowBase):
 
         # player representations
         self.player_nodes = {}  # pid -> NodePath
+        self.grenade_nodes = {}  # gid -> NodePath
+        self._grenade_hold_start = None
 
         # cosmetics
         self.local_team = None  # filled post-handshake
@@ -770,6 +772,26 @@ class GameApp(ShowBase):
                 self.player_nodes[pid].removeNode()
                 del self.player_nodes[pid]
 
+        # --- Grenades ---
+        g_present = set()
+        latest = s1 or s0
+        if latest:
+            for g in latest.get("grenades", []):
+                gid = g.get("id")
+                node = self.grenade_nodes.get(gid)
+                if node is None:
+                    node = self.loader.loadModel("models/box")
+                    node.setScale(0.4)
+                    node.setColor(1, 1, 0, 1)
+                    node.reparentTo(self.render)
+                    self.grenade_nodes[gid] = node
+                node.setPos(g.get("x",0.0), g.get("y",0.0), g.get("z",0.0))
+                g_present.add(gid)
+        for gid in list(self.grenade_nodes.keys()):
+            if gid not in g_present:
+                self.grenade_nodes[gid].removeNode()
+                del self.grenade_nodes[gid]
+
 
         # Smooth camera **position** using our interpolated "me" (orientation from live mouse)
         if my_pid is not None:
@@ -865,6 +887,15 @@ class GameApp(ShowBase):
         if self.mouseWatcherNode.is_button_down(MouseButton.one()):
             data["fire"] = True
             data["fire_t"] = self.render_time
+
+        # Right mouse for grenade throw
+        if self.mouseWatcherNode.is_button_down(MouseButton.two()):
+            if self._grenade_hold_start is None:
+                self._grenade_hold_start = self.render_time
+        elif self._grenade_hold_start is not None:
+            hold = max(0.0, self.render_time - self._grenade_hold_start)
+            data["grenade"] = hold
+            self._grenade_hold_start = None
 
         if self.client.writer:
             self.net_runner.run_coro(self.client.send_input(data))
