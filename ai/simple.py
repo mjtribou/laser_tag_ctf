@@ -2,8 +2,8 @@
 import math, random, time
 from typing import Dict, Tuple, List, Optional
 
-from .constants import TEAM_RED, TEAM_BLUE
-from . import nav_grid as ng
+from game.constants import TEAM_RED, TEAM_BLUE
+from game import nav_grid as ng
 
 def _wrap_pi(a: float) -> float:
     return ((a + math.pi) % (2 * math.pi)) - math.pi

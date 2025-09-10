@@ -13,7 +13,11 @@ from game.constants import (
 from game.map_gen import generate
 from game.server_state import GameState, Player, Flag
 from game.transform import wrap_pi, deg_to_rad, rad_to_deg, forward_vector, local_move_delta
-from game.bot_ai import SimpleBotBrain
+from ai.simple import SimpleBotBrain
+from game.event_bus import EventBus
+from game.weapons import load_weapons
+from game.player_classes import load_player_classes
+from game.grenades import load_grenades
 
 # --- Panda3D / Bullet (headless) ---
 from panda3d.core import Vec3, Point3, NodePath, BitMask32, LPoint3
@@ -44,6 +48,11 @@ class LaserTagServer:
         self.cfg = cfg
         self.gs = GameState()
         self.next_pid = 1
+
+        self.events = EventBus()
+        self.player_classes = load_player_classes("configs/player_classes.json")
+        self.weapon_defs = load_weapons("configs/weapons.json")
+        self.grenade_defs = load_grenades("configs/grenades.json")
 
         size_x, size_z = self.cfg["gameplay"]["arena_size_m"]
         cube_cfg = self.cfg.get("cubes", {})
@@ -147,6 +156,12 @@ class LaserTagServer:
         ch = BulletCharacterControllerNode(shape, step_height, f"char_{pid}")
         ch.setGravity(float(self.cfg["gameplay"]["gravity"]))
         ch.setIntoCollideMask(MASK_SOLID)  # collide with static world
+        pc = self.player_classes.get(self.gs.players.get(pid).class_id) if self.gs.players.get(pid) else None
+        if pc:
+            try:
+                ch.setJumpSpeed(pc.jump_speed)
+            except Exception:
+                pass
 
         np = self._root.attachNewNode(ch)
         np.setPos(pos[0], pos[1], pos[2])
@@ -216,8 +231,10 @@ class LaserTagServer:
         self.next_pid += 1
 
         x, y, z, yaw_rad = self.assign_spawn(team)
-        shots_per_mag = int(self.cfg["gameplay"].get("shots_per_mag", 20))
-        p = Player(pid=pid, name=name, team=team, x=x, y=y, z=z, yaw_rad=yaw_rad, pitch_rad=0.0, on_ground=True, shots_remaining=shots_per_mag, reload_end=0.0)
+        default_class = "infantry"
+        default_weapon = "laser_rifle"
+        shots_per_mag = self.weapon_defs.get(default_weapon, None).mag_capacity if self.weapon_defs.get(default_weapon) else int(self.cfg["gameplay"].get("shots_per_mag", 20))
+        p = Player(pid=pid, name=name, team=team, x=x, y=y, z=z, yaw_rad=yaw_rad, pitch_rad=0.0, on_ground=True, shots_remaining=shots_per_mag, reload_end=0.0, class_id=default_class, weapon_id=default_weapon)
         self.gs.players[pid] = p
 
         self._create_character(pid, (x, y, z), yaw_rad)
@@ -226,7 +243,7 @@ class LaserTagServer:
             base_pos = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
             enemy_base = self.mapdata.blue_base if team == TEAM_RED else self.mapdata.red_base
             # Use A* navigation brain for bots
-            from game.bot_ai import AStarBotBrain
+            from ai.simple import AStarBotBrain
             brain = AStarBotBrain(team, base_pos, enemy_base)
             self.bot_brains[pid] = brain
 
@@ -576,6 +593,13 @@ class LaserTagServer:
             del self._grenades[gid]
 # ---------- Input & per-tick ----------
     def _movement_speed(self, p: Player, walk: bool, crouch: bool) -> float:
+        pc = self.player_classes.get(p.class_id)
+        if pc:
+            if crouch:
+                return pc.crouch_speed
+            if walk:
+                return pc.walk_speed
+            return pc.run_speed
         if crouch:
             return float(self.cfg["gameplay"]["crouch_speed"])
         if walk:
@@ -586,8 +610,9 @@ class LaserTagServer:
         if not p.alive:
             return
 
-        shots_per_mag = int(self.cfg["gameplay"].get("shots_per_mag", 20))
-        reload_sec = float(self.cfg["gameplay"].get("reload_seconds", 1.5))
+        weapon = self.weapon_defs.get(p.weapon_id)
+        shots_per_mag = weapon.mag_capacity if weapon else int(self.cfg["gameplay"].get("shots_per_mag", 20))
+        reload_sec = weapon.reload_seconds if weapon else float(self.cfg["gameplay"].get("reload_seconds", 1.5))
         now_t = now()
         if p.shots_remaining <= 0 and now_t >= p.reload_end:
             p.shots_remaining = shots_per_mag
@@ -632,12 +657,12 @@ class LaserTagServer:
 
         if bool(inp.get("fire", False)) and p.shots_remaining > 0 and now_t >= p.reload_end:
             t = now()
-            rof = float(self.cfg["gameplay"]["rapid_fire_rate_hz"])
+            rof = weapon.fire_rate if weapon else float(self.cfg["gameplay"]["rapid_fire_rate_hz"])
             min_dt = 1.0 / max(1e-6, rof)
             if t - p.last_fire_time >= min_dt:
                 p.last_fire_time = t
                 p.shots_remaining -= 1
-                base = float(self.cfg["gameplay"]["base_spread_deg"])
+                base = weapon.spread if weapon else float(self.cfg["gameplay"]["base_spread_deg"])
                 move_factor = float(self.cfg["gameplay"]["spread_move_factor"])
                 crouch_bonus = float(self.cfg["gameplay"]["spread_crouch_bonus"])
                 intent_mag = min(1.0, math.hypot(mx, mz))
@@ -654,7 +679,7 @@ class LaserTagServer:
                 elif isinstance(res, int):
                     victim_pid = res
 
-                p.recoil_accum = min(4.0, p.recoil_accum + float(self.cfg["gameplay"]["recoil_per_shot_deg"]))
+                p.recoil_accum = min(4.0, p.recoil_accum + (weapon.recoil if weapon else float(self.cfg["gameplay"]["recoil_per_shot_deg"])))
                 if p.shots_remaining == 0:
                     p.reload_end = t + reload_sec
 
@@ -693,6 +718,7 @@ class LaserTagServer:
                 "cause": cause,
             }
             self.killfeed.append(evt)
+            self.events.emit("player_tagged", evt)
             max_keep = int(self.cfg.get("hud", {}).get("killfeed_max", 6)) * 3
             max_keep = max(12, max_keep)
             if len(self.killfeed) > max_keep:

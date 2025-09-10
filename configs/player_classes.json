@@ -1,0 +1,9 @@
+{
+  "infantry": {
+    "run_speed": 7.0,
+    "walk_speed": 5.0,
+    "crouch_speed": 3.0,
+    "jump_speed": 1.8,
+    "accuracy": 1.0
+  }
+}

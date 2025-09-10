@@ -64,7 +64,8 @@ laser_tag_ctf/
     constants.py
     map_gen.py
     server_state.py    # shared math helpers & state structs
-    bot_ai.py
+  ai/
+    simple.py
   configs/defaults.json
   requirements.txt
   README.md
