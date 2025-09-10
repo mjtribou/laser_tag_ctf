@@ -34,8 +34,9 @@
     "laser_range_m": 200.0,
     "grenade_max_charge": 1.5,
     "grenade_throw_speed": 20.0,
+    "grenade_lob_speed": 0.0,
     "grenade_fuse": 3.0,
-    "grenade_radius": 5.0,
+    "grenade_radius": 10.0,
     "grenade_knockback": 3.0
   },
   "cubes": {
@@ -137,7 +138,7 @@
       "enabled": true,
       "default": {
         "type": "ballcap",
-        "color": "purple"
+        "color": "white"
       },
       "palette": {
         "red": [
@@ -196,7 +197,7 @@
       "assignments": {
         "Mike": {
           "type": "ballcap",
-          "color": "purple"
+          "color": "green"
         },
         "BotR1": {
           "type": "headband",

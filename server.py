@@ -538,7 +538,7 @@ class LaserTagServer:
         max_charge = float(self.cfg["gameplay"].get("grenade_max_charge", 1.5))
         speed = base * min(1.0, power / max_charge)
         owner_vel = Vec3(owner.vx, owner.vy, owner.vz)
-        node.setLinearVelocity(Vec3(fx*speed, fy*speed, fz*speed + 5.0) + owner_vel)
+        node.setLinearVelocity(Vec3(fx*speed, fy*speed, fz*speed + float(self.cfg["gameplay"].get("grenade_lob_speed", 5.0))) + owner_vel)
         fuse = float(self.cfg["gameplay"].get("grenade_fuse", 3.0))
         self._grenades[gid] = {"owner": owner.pid, "np": np, "node": node, "explode_at": now() + fuse}
         print(f'[grenade] spawn gid={gid} owner={owner.pid} power={power:.2f}')

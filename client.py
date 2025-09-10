@@ -910,8 +910,8 @@ class GameApp(ShowBase):
             data["fire"] = True
             data["fire_t"] = self.render_time
 
-        # Middle mouse for grenade throw
-        if self.mouseWatcherNode.is_button_down(MouseButton.two()):
+        # Right mouse for grenade throw
+        if self.mouseWatcherNode.is_button_down(MouseButton.three()):
             if self._grenade_hold_start is None:
                 self._grenade_hold_start = self.render_time
         elif self._grenade_hold_start is not None:
