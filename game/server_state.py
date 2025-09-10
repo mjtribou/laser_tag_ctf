@@ -34,6 +34,9 @@ class Player:
     captures: int = 0
     defences: int = 0
     ping_ms: float = 0.0
+    class_id: str = "infantry"
+    weapon_id: str = "laser_rifle"
+    grenades: List[str] = field(default_factory=list)
 
 @dataclass
 class Flag:

@@ -1,0 +1,9 @@
+{
+  "laser_rifle": {
+    "fire_rate": 10.0,
+    "recoil": 0.4,
+    "spread": 0.15,
+    "mag_capacity": 20,
+    "reload_seconds": 1.5
+  }
+}
