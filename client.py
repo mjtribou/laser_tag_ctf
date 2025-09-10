@@ -5,7 +5,7 @@ from bisect import bisect, bisect_right
 
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
-from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f, KeyboardButton, WindowProperties
+from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f, KeyboardButton, WindowProperties, ClockObject
 from panda3d.core import LColor, MouseButton, LineSegs, TextNode
 from panda3d.core import TextNode, TransparencyAttrib, NodePath, LVecBase4f
 from panda3d.core import CompassEffect, BillboardEffect, LColor
@@ -688,8 +688,9 @@ class GameApp(ShowBase):
     def update_task(self, task):
         # advance smoothed render_time toward latest snapshot time
         target = self.latest_server_time - self.interp_delay + self.interp_predict
-        dt = getattr(task, "dt", 0.0)
-        if self.render_time == 0.0:
+        dt = ClockObject.getGlobalClock().getDt()
+        # If we're far behind (e.g., after joining or a hiccup), snap to target
+        if self.render_time == 0.0 or (target - self.render_time) > 0.5:
             self.render_time = target
         else:
             self.render_time = min(target, self.render_time + dt)
