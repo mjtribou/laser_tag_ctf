@@ -289,6 +289,7 @@ class LaserTagServer:
                     fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
                     fl.x, fl.y, fl.z = fx, fy, fz
                     fl.dropped_at_time = 0.0
+                    p.defences += 1
                 continue
 
             if fl.carried_by is not None:
@@ -338,6 +339,7 @@ class LaserTagServer:
             if math.hypot(p.x - bx, p.y - by) <= BASE_CAPTURE_RADIUS:
                 self.gs.teams[p.team].captures += 1
                 fl.carried_by = None
+                p.captures += 1
                 fl.at_base = True
                 fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
                 fl.x, fl.y, fl.z = fx, fy, fz
@@ -670,6 +672,11 @@ class LaserTagServer:
         if not v or not v.alive:
             return
 
+        # Stat updates
+        v.outs += 1
+        if attacker is not None and attacker in self.gs.players:
+            self.gs.players[attacker].tags += 1
+
         # Mark dead + schedule respawn (unchanged)
         v.alive = False
         v.respawn_at = now() + float(self.cfg["server"]["respawn_seconds"])
@@ -907,6 +914,7 @@ class LaserTagServer:
                 "alive": p.alive,
                 "shots": p.shots_remaining,
                 "reload": max(0.0, p.reload_end - now_t),
+                "tags": p.tags, "outs": p.outs, "captures": p.captures, "defences": p.defences, "ping": int(p.ping_ms)
             }
             if p.alive:
                 d["yaw"]   = rad_to_deg(p.yaw_rad)
@@ -987,6 +995,10 @@ class LaserTagServer:
                     current = self.inputs.get(pid, {})
                     current.update(data)
                     self.inputs[pid] = current
+                    p = self.gs.players.get(pid)
+                    t = msg.get("time")
+                    if p is not None and t is not None:
+                        p.ping_ms = max(0.0, (now() - float(t)) * 1000.0)
         except Exception as e:
             print(f"[client] {addr} error: {e}")
         finally:

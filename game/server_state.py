@@ -28,6 +28,12 @@ class Player:
     recoil_accum: float = 0.0
     shots_remaining: int = 0
     reload_end: float = 0.0
+    # --- Stats for scoreboard ---
+    tags: int = 0
+    outs: int = 0
+    captures: int = 0
+    defences: int = 0
+    ping_ms: float = 0.0
 
 @dataclass
 class Flag:
