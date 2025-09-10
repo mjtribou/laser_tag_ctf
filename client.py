@@ -428,6 +428,11 @@ class GameApp(ShowBase):
         self.shots_per_mag = int(gp_cfg.get("shots_per_mag", 20))
         self.reload_seconds = float(gp_cfg.get("reload_seconds", 1.5))
         self.rapid_fire_rate = float(gp_cfg.get("rapid_fire_rate_hz", 10.0))
+        recoil_cfg = gp_cfg.get("camera_recoil", {})
+        self.recoil_pitch_base = float(recoil_cfg.get("pitch_base_deg", 1.0))
+        self.recoil_pitch_step = float(recoil_cfg.get("pitch_step_deg", 0.1))
+        self.recoil_yaw_step = float(recoil_cfg.get("yaw_step_deg", 0.3))
+        self.recoil_burst_reset = float(recoil_cfg.get("burst_reset_s", 0.3))
         self.shots_left = self.shots_per_mag
         self.reload_end = 0.0
         self.last_local_fire = 0.0
@@ -528,11 +533,11 @@ class GameApp(ShowBase):
 
 
     def _apply_recoil(self):
-        if self.render_time - self.last_local_fire > 0.3:
+        if self.render_time - self.last_local_fire > self.recoil_burst_reset:
             self.burst_shots = 0
         self.burst_shots += 1
-        pitch_kick = 1.0 + 0.1 * self.burst_shots
-        yaw_kick = (0.3 * self.burst_shots) * (1 if self.burst_shots % 2 == 0 else -1)
+        pitch_kick = self.recoil_pitch_base + self.recoil_pitch_step * self.burst_shots
+        yaw_kick = (self.recoil_yaw_step * self.burst_shots) * (1 if self.burst_shots % 2 == 0 else -1)
         self.pitch = max(-90.0, min(90.0, self.pitch - pitch_kick))
         self.yaw += yaw_kick
 

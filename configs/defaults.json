@@ -39,7 +39,13 @@
     "grenade_radius": 10.0,
     "grenade_knockback": 3.0,
     "shots_per_mag": 20,
-    "reload_seconds": 1.5
+    "reload_seconds": 1.5,
+    "camera_recoil": {
+      "pitch_base_deg": 1.0,
+      "pitch_step_deg": 0.1,
+      "yaw_step_deg": 0.3,
+      "burst_reset_s": 0.3
+    }
   },
   "cubes": {
     "size": 1.0,
