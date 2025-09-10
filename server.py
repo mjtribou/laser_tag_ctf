@@ -530,7 +530,11 @@ class LaserTagServer:
         crouch = bool(inp.get("crouch", False))
         jump_pressed = bool(inp.get("jump", False))
 
-        speed = self._movement_speed(p, walk, crouch)
+        # Persist walking/crouching state so other systems and clients see it
+        p.walking = walk
+        p.crouching = crouch
+
+        speed = self._movement_speed(p, p.walking, p.crouching)
         mx = float(inp.get("mx", 0.0))
         mz = float(inp.get("mz", 0.0))
 
