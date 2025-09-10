@@ -12,6 +12,7 @@ from panda3d.core import CompassEffect, BillboardEffect, LColor
 
 from common.net import send_json, read_json, lan_discovery_broadcast
 from game.constants import TEAM_RED, TEAM_BLUE
+from scoreboard import Scoreboard
 from game.map_gen import generate
 
 # ========== Cosmetics Manager ==========
@@ -307,7 +308,7 @@ class NetworkClient:
 
     async def send_input(self, data: Dict[str, Any]):
         self.last_input = data
-        await send_json(self.writer, {"type": "input", "data": data})
+        await send_json(self.writer, {"type": "input", "time": time.time(), "data": data})
 
 
 def _angle_lerp_deg(a: float, b: float, t: float) -> float:
@@ -424,6 +425,7 @@ class GameApp(ShowBase):
 
         self._kill_seen = set()            # (t_ms, attacker_pid, victim_pid)
         self._kill_nodes = []              # list[(OnscreenText, created_time)]
+        self.scoreboard = Scoreboard(self)
 
         # key state
         self.keys = set()
@@ -872,6 +874,11 @@ class GameApp(ShowBase):
         if self._kill_nodes:
             self._layout_killfeed()
 
+        if "tab" in self.keys:
+            self.scoreboard.show()
+            self.scoreboard.update(self.client.state)
+        else:
+            self.scoreboard.hide()
         # === Build & send inputs ===
         mx = 0.0
         mz = 0.0
