@@ -17,7 +17,7 @@ from game.bot_ai import SimpleBotBrain
 
 # --- Panda3D / Bullet (headless) ---
 from panda3d.core import Vec3, Point3, NodePath, BitMask32, LPoint3
-from panda3d.bullet import BulletWorld, BulletRigidBodyNode, BulletBoxShape, BulletCharacterControllerNode
+from panda3d.bullet import BulletWorld, BulletRigidBodyNode, BulletBoxShape, BulletCharacterControllerNode, BulletSphereShape
 # ---------- Config ----------
 def load_config(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
@@ -75,6 +75,10 @@ class LaserTagServer:
         self._corpse_np: Dict[int, NodePath] = {}
         self._corpse_node: Dict[int, "BulletRigidBodyNode"] = {}
         self._last_hitinfo: Dict[int, Tuple[Tuple[float,float,float], Tuple[float,float,float]]] = {}
+
+        # Grenade state
+        self._grenades: Dict[int, Dict[str, Any]] = {}  # gid -> {owner, np, node, explode_at}
+        self._next_gid: int = 1
 
         # Unstick state
         self._last_pos: Dict[int, Tuple[float,float,float]] = {}
@@ -511,7 +515,53 @@ class LaserTagServer:
         dlen = math.sqrt(fx*fx + fy*fy + fz*fz) or 1.0
         return victim_pid, hit_point, (fx/dlen, fy/dlen, fz/dlen)
 
-    # ---------- Input & per-tick ----------
+    
+    def _spawn_grenade(self, owner: Player, power: float):
+        gid = self._next_gid
+        self._next_gid += 1
+        radius = 0.2
+        shape = BulletSphereShape(radius)
+        node = BulletRigidBodyNode(f"grenade-{gid}")
+        node.setMass(1.0)
+        node.addShape(shape)
+        node.setFriction(0.5)
+        node.setRestitution(0.6)
+        node.setIntoCollideMask(MASK_SOLID)
+        np = self._root.attachNewNode(node)
+        np.setPos(owner.x, owner.y, owner.z + 1.0)
+        self.world.attachRigidBody(node)
+        fx, fy, fz = forward_vector(owner.yaw_rad, owner.pitch_rad)
+        base = float(self.cfg["gameplay"].get("grenade_throw_speed", 15.0))
+        max_charge = float(self.cfg["gameplay"].get("grenade_max_charge", 1.5))
+        speed = base * min(1.0, power / max_charge)
+        node.setLinearVelocity(Vec3(fx*speed, fy*speed, fz*speed + 5.0))
+        fuse = float(self.cfg["gameplay"].get("grenade_fuse", 3.0))
+        self._grenades[gid] = {"owner": owner.pid, "np": np, "node": node, "explode_at": now() + fuse}
+        print(f'[grenade] spawn gid={gid} owner={owner.pid} power={power:.2f}')
+
+    def _update_grenades(self):
+        radius = float(self.cfg["gameplay"].get("grenade_radius", 5.0))
+        tnow = now()
+        remove = []
+        for gid, g in list(self._grenades.items()):
+            if tnow >= g["explode_at"]:
+                pos = g["np"].getPos()
+                for pid, pl in self.gs.players.items():
+                    if not pl.alive or pid == g["owner"]:
+                        continue
+                    thrower = self.gs.players.get(g["owner"])
+                    if thrower and pl.team == thrower.team:
+                        continue
+                    dx, dy, dz = pl.x - pos.x, pl.y - pos.y, pl.z - pos.z
+                    dist = (dx*dx + dy*dy + dz*dz) ** 0.5
+                    if dist <= radius:
+                        self._tag_player(pid, attacker=g["owner"], hit_point=(pl.x, pl.y, pl.z), shot_dir=(dx, dy, dz))
+                self.world.removeRigidBody(g["node"])
+                g["np"].removeNode()
+                remove.append(gid)
+        for gid in remove:
+            del self._grenades[gid]
+# ---------- Input & per-tick ----------
     def _movement_speed(self, p: Player, walk: bool, crouch: bool) -> float:
         if crouch:
             return float(self.cfg["gameplay"]["crouch_speed"])
@@ -555,6 +605,11 @@ class LaserTagServer:
                 ch.doJump()
             except Exception:
                 pass
+
+        power = float(inp.get("grenade", 0.0))
+        if power > 0.0:
+            self._spawn_grenade(p, power)
+            inp["grenade"] = 0.0
 
         if bool(inp.get("fire", False)):
             t = now()
@@ -842,6 +897,11 @@ class LaserTagServer:
                 "x": fl.x, "y": fl.y, "z": fl.z
             })
         
+        grenades = []
+        for gid, g in self._grenades.items():
+            pos = g['np'].getPos()
+            grenades.append({"id": gid, "x": float(pos.x), "y": float(pos.y), "z": float(pos.z)})
+
         now_t = now()
         hud_cfg = self.cfg.get("hud", {})
         ttl = float(hud_cfg.get("killfeed_ttl", 4.0))
@@ -854,6 +914,7 @@ class LaserTagServer:
             "time": now(),
             "players": players,
             "flags": flags,
+            "grenades": grenades,
             "teams": {TEAM_RED: {"captures": self.gs.teams[TEAM_RED].captures},
                       TEAM_BLUE: {"captures": self.gs.teams[TEAM_BLUE].captures}},
             "match_over": self.gs.match_over,
@@ -883,7 +944,10 @@ class LaserTagServer:
                 if not msg:
                     break
                 if msg.get("type") == "input":
-                    self.inputs[pid] = msg.get("data", {})
+                    data = msg.get("data", {})
+                    current = self.inputs.get(pid, {})
+                    current.update(data)
+                    self.inputs[pid] = current
         except Exception as e:
             print(f"[client] {addr} error: {e}")
         finally:
@@ -989,6 +1053,7 @@ class LaserTagServer:
 
             # Sync physics → game state, then unstick
             self._after_physics_sync()
+            self._update_grenades()
             self._auto_unstick(tick_dt)
             self._record_history()
 
