@@ -425,6 +425,20 @@ class GameApp(ShowBase):
 
         self._kill_seen = set()            # (t_ms, attacker_pid, victim_pid)
         self._kill_nodes = []              # list[(OnscreenText, created_time)]
+        gp_cfg = self.cfg.get("gameplay", {})
+        self.shots_per_mag = int(gp_cfg.get("shots_per_mag", 20))
+        self.reload_seconds = float(gp_cfg.get("reload_seconds", 1.5))
+        self.rapid_fire_rate = float(gp_cfg.get("rapid_fire_rate_hz", 10.0))
+        recoil_cfg = gp_cfg.get("camera_recoil", {})
+        self.recoil_pitch_base = float(recoil_cfg.get("pitch_base_deg", 1.0))
+        self.recoil_pitch_step = float(recoil_cfg.get("pitch_step_deg", 0.1))
+        self.recoil_yaw_step = float(recoil_cfg.get("yaw_step_deg", 0.3))
+        self.recoil_burst_reset = float(recoil_cfg.get("burst_reset_s", 0.3))
+        self.shots_left = self.shots_per_mag
+        self.reload_end = 0.0
+        self.last_local_fire = 0.0
+        self.burst_shots = 0
+        self.ammo_text = OnscreenText(text=str(self.shots_left), pos=(1.25, -0.95), fg=(1,1,1,1), align=TextNode.ARight, scale=0.07, mayChange=True)
         self.scoreboard = Scoreboard(self)
 
         # key state
@@ -518,6 +532,16 @@ class GameApp(ShowBase):
         dx, dy = x * sens * 100.0, y * sens * 100.0
         self.win.movePointer(0, int(self.win.getXSize() / 2), int(self.win.getYSize() / 2))
         return dx, dy
+
+
+    def _apply_recoil(self):
+        if self.render_time - self.last_local_fire > self.recoil_burst_reset:
+            self.burst_shots = 0
+        self.burst_shots += 1
+        pitch_kick = self.recoil_pitch_base + self.recoil_pitch_step * self.burst_shots
+        yaw_kick = (self.recoil_yaw_step * self.burst_shots) * (1 if self.burst_shots % 2 == 0 else -1)
+        self.pitch = max(-90.0, min(90.0, self.pitch - pitch_kick))
+        self.yaw += yaw_kick
 
     # --- Interpolation helpers -------------------------------------------
 
@@ -874,11 +898,23 @@ class GameApp(ShowBase):
         if self._kill_nodes:
             self._layout_killfeed()
 
+        if latest and my_pid is not None:
+            me_latest = next((p for p in latest.get("players", [] ) if p["pid"] == my_pid), None)
+            if me_latest:
+                self.shots_left = int(me_latest.get("shots", self.shots_left))
+                reload_left = float(me_latest.get("reload", 0.0))
+                if reload_left > 0:
+                    self.reload_end = self.render_time + reload_left
+                if self.render_time >= self.reload_end and self.shots_left == 0:
+                    self.shots_left = self.shots_per_mag
+                    self.burst_shots = 0
+
         if "tab" in self.keys:
             self.scoreboard.show()
             self.scoreboard.update(self.client.state)
         else:
             self.scoreboard.hide()
+
         # === Build & send inputs ===
         mx = 0.0
         mz = 0.0
@@ -913,9 +949,22 @@ class GameApp(ShowBase):
             "pitch": self.pitch,
         }
 
-        if self.mouseWatcherNode.is_button_down(MouseButton.one()):
+        fire_pressed = self.mouseWatcherNode.is_button_down(MouseButton.one())
+        min_dt = 1.0 / max(1e-6, self.rapid_fire_rate)
+        can_fire = fire_pressed and self.render_time >= self.reload_end and self.shots_left > 0 and (self.render_time - self.last_local_fire) >= min_dt
+        if can_fire:
+            self._apply_recoil()
             data["fire"] = True
             data["fire_t"] = self.render_time
+            data["yaw"] = self.yaw
+            data["pitch"] = self.pitch
+            self.shots_left -= 1
+            self.last_local_fire = self.render_time
+            if self.shots_left == 0:
+                self.reload_end = self.render_time + self.reload_seconds
+        else:
+            data["fire"] = False
+        self.ammo_text.setText(str(self.shots_left))
 
         # Right mouse for grenade throw
         if self.mouseWatcherNode.is_button_down(MouseButton.three()):
