@@ -41,9 +41,9 @@
     "shots_per_mag": 20,
     "reload_seconds": 1.5,
     "camera_recoil": {
-      "pitch_base_deg": 1.0,
-      "pitch_step_deg": 0.1,
-      "yaw_step_deg": 0.3,
+      "pitch_base_deg": -0.5,
+      "pitch_step_deg": -0.1,
+      "yaw_step_deg": 0.01,
       "burst_reset_s": 0.3
     }
   },
