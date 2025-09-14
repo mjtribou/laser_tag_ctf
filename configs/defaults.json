@@ -11,7 +11,8 @@
     "flag_return_seconds": 10,
     "friendly_fire": false,
     "bot_fill": true,
-    "bot_per_team_target": 5
+    "bot_per_team_target": 5,
+    "bots_target_players": false
   },
   "gameplay": {
     "run_speed": 7.0,

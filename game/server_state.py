@@ -10,6 +10,7 @@ class Player:
     pid: int
     name: str
     team: int
+    is_bot: bool = False
     x: float = 0.0
     y: float = 0.0          # Panda Y (forward)
     z: float = 0.9          # Panda Z (up)

@@ -81,10 +81,11 @@ class AStarBotBrain:
     - Plans toward enemy base (or home base if carrying flag).
     - Presses 'interact' near flags to pick up/return.
     """
-    def __init__(self, team: int, base_pos: Tuple[float,float,float], enemy_base: Tuple[float,float,float]):
+    def __init__(self, team: int, base_pos: Tuple[float,float,float], enemy_base: Tuple[float,float,float], *, target_players: bool = True):
         self.team = team
         self.base_pos = base_pos
         self.enemy_base = enemy_base
+        self.target_players = bool(target_players)
         self._nav: Optional[ng.NavGrid] = None
         self._path: List[Tuple[float,float]] = []
         self._path_i: int = 0
@@ -209,6 +210,12 @@ class AStarBotBrain:
         for pid, p in gs.players.items():
             if p.team == me.team or not p.alive:
                 continue
+            # If configured to avoid targeting human players, skip non-bots
+            try:
+                if not self.target_players and not getattr(p, 'is_bot', False):
+                    continue
+            except Exception:
+                pass
             dx = p.x - me.x
             dy = p.y - me.y
             d2 = dx*dx + dy*dy

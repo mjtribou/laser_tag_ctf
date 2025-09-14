@@ -222,7 +222,7 @@ class LaserTagServer:
 
         x, y, z, yaw_rad = self.assign_spawn(team)
         shots_per_mag = int(self.cfg["gameplay"].get("shots_per_mag", 20))
-        p = Player(pid=pid, name=name, team=team, x=x, y=y, z=z, yaw_rad=yaw_rad, pitch_rad=0.0, on_ground=True, shots_remaining=shots_per_mag, reload_end=0.0)
+        p = Player(pid=pid, name=name, team=team, is_bot=is_bot, x=x, y=y, z=z, yaw_rad=yaw_rad, pitch_rad=0.0, on_ground=True, shots_remaining=shots_per_mag, reload_end=0.0)
         self.gs.players[pid] = p
 
         self._create_character(pid, (x, y, z), yaw_rad)
@@ -232,7 +232,8 @@ class LaserTagServer:
             enemy_base = self.mapdata.blue_base if team == TEAM_RED else self.mapdata.red_base
             # Use A* navigation brain for bots
             from game.bot_ai import AStarBotBrain
-            brain = AStarBotBrain(team, base_pos, enemy_base)
+            target_players = bool(self.cfg.get("server", {}).get("bots_target_players", True))
+            brain = AStarBotBrain(team, base_pos, enemy_base, target_players=target_players)
             self.bot_brains[pid] = brain
 
         print(f"[join] pid={pid} name={name} team={'RED' if team==TEAM_RED else 'BLUE'}")
