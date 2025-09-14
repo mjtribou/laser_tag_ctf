@@ -62,6 +62,11 @@
       "1": { "all": 1, "top": 3 },
       "2": { "all": 2 },
       "3": { "all": 3 }
+    },
+    "team_tint": {
+      "enabled": true,
+      "intensity": 0.40,
+      "blend_width_m": 8.0
     }
   },
   "bunkers": {

@@ -610,6 +610,19 @@ class GameApp(ShowBase):
                 self.cube_variants[t] = base_np
             print('[obstacles] prepared cube variants for types 0..3')
 
+            # Precompute team tint config and colors
+            atl_cfg = self.cfg.get('cube_atlas', {}) if isinstance(self.cfg, dict) else {}
+            tt_cfg = atl_cfg.get('team_tint', {}) if isinstance(atl_cfg, dict) else {}
+            tt_enabled = bool(tt_cfg.get('enabled', True))
+            tt_intensity = float(tt_cfg.get('intensity', 0.08))
+            tt_blend = float(tt_cfg.get('blend_width_m', 8.0))
+            try:
+                col_red = self.cfg.get('colors', {}).get('team_red', [0.85,0.2,0.1,1.0])
+                col_blue = self.cfg.get('colors', {}).get('team_blue', [0.15,0.45,0.95,1.0])
+            except Exception:
+                col_red = [0.85,0.2,0.1,1.0]
+                col_blue = [0.15,0.45,0.95,1.0]
+
             first = True
             for b in self.mapdata.blocks:
                 t = int(getattr(b, 'box_type', 0)) % 4
@@ -619,6 +632,22 @@ class GameApp(ShowBase):
                 sx, sy, sz = b.size
                 if (abs(sx - 1.0) > 1e-6) or (abs(sy - 1.0) > 1e-6) or (abs(sz - 1.0) > 1e-6):
                     inst.setScale(sx, sy, sz)
+                # Subtle team tint based on X half, with blend across the center line
+                try:
+                    if tt_enabled and tt_intensity > 0.0:
+                        x = b.pos[0]
+                        # Weight ramps from 0 near center to 1 beyond blend half-width
+                        w = 1.0
+                        if tt_blend > 0.0:
+                            half = 0.5 * tt_blend
+                            w = min(1.0, max(0.0, (abs(x) - 0.0) / max(half, 1e-6)))
+                        team = col_blue if x >= 0 else col_red
+                        sr = (1.0 - tt_intensity * w) + tt_intensity * w * float(team[0])
+                        sg = (1.0 - tt_intensity * w) + tt_intensity * w * float(team[1])
+                        sb = (1.0 - tt_intensity * w) + tt_intensity * w * float(team[2])
+                        inst.setColorScale(sr, sg, sb, 1.0)
+                except Exception:
+                    pass
                 if first:
                     try:
                         print('[obstacles] first instance textures:', [t.getName() for t in inst.findAllTextures()], 'type:', getattr(b,'box_type',0))

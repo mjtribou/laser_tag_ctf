@@ -114,10 +114,16 @@ class LaserTagServer:
         self._attach_static_box((0.0, 0.0, -2.5), (size_x, size_z, 5.0), "floor")
 
         # Procedural blocks → static boxes
+        count_blocks = 0
         for i, b in enumerate(self.mapdata.blocks):
             cx, cy, cz = b.pos
             sx, sy, sz = b.size
             self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"block_{i}")
+            count_blocks += 1
+        try:
+            print(f"[server] static world: {count_blocks} block colliders attached")
+        except Exception:
+            pass
 
         # Arena walls (thin boxes)
         wall_t = 0.5
