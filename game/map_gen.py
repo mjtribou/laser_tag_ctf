@@ -8,6 +8,8 @@ from .bunkers import BunkerLibrary, place_bunkers
 class Block:
     pos: Tuple[float, float, float]
     size: Tuple[float, float, float]
+    # Visual type for selecting texture tiles at the client (0..N-1)
+    box_type: int = 0
 
 @dataclass
 class MapData:
@@ -89,15 +91,14 @@ def generate(seed: int,
         left_range = range(0, mid + 1)  # include center column
 
     # Ground-layer placement then vertical stacking
-    if False:
-        for iy in range(ny):
-            for ix in left_range:
-                if rng.random() < p0:
-                    h = 1
-                    while (h < max_h) and (rng.random() < p_stack):
-                        h += 1
-                    for k in range(h):  # k = 0 at floor
-                        authored_half.add((ix, iy, k))
+    for iy in range(ny):
+        for ix in left_range:
+            if rng.random() < p0:
+                h = 1
+                while (h < max_h) and (rng.random() < p_stack):
+                    h += 1
+                for k in range(h):  # k = 0 at floor
+                    authored_half.add((ix, iy, k))
 
     # Mirror into the opposite half
     full_grid: set[Tuple[int, int, int]] = set(authored_half)
@@ -130,28 +131,18 @@ def generate(seed: int,
     clear_spawn((red_base[0], red_base[1]))
     clear_spawn((blue_base[0], blue_base[1]))
 
-    # Collapse vertical stacks (same ix,iy with consecutive k) into single boxes
+    # Emit one block per cube (no vertical stack collapsing).
+    # Positions are at cell centers; size is exactly one cube.
     blocks: List[Block] = []
-    for iy in range(ny):
-        for ix in range(nx):
-            k = 0
-            while k < max_h:
-                if (ix, iy, k) not in full_grid:
-                    k += 1
-                    continue
-                # run length in k
-                k0 = k
-                while (k < max_h) and ((ix, iy, k) in full_grid):
-                    k += 1
-                height_cubes = k - k0
-                cz = (k0 + height_cubes * 0.5) * cube
-                cx = origin_x + (ix + 0.5) * cube
-                cy = origin_y + (iy + 0.5) * cube
-                blocks.append(Block(
-                    pos=(cx, cy, cz),
-                    size=(cube, cube, height_cubes * cube)
-                ))
-            # k continues from last value per loop; fine
+    for (ix, iy, k) in sorted(full_grid):
+        cx = origin_x + (ix + 0.5) * cube
+        cy = origin_y + (iy + 0.5) * cube
+        cz = (k + 0.5) * cube
+        # Assign a deterministic type per cell using the RNG and grid indices
+        # to provide visual variety while remaining stable for a given seed.
+        t = (ix * 73856093 ^ iy * 19349663 ^ k * 83492791 ^ int(seed)) & 0xFFFFFFFF
+        box_type = (t % 4)
+        blocks.append(Block(pos=(cx, cy, cz), size=(cube, cube, cube), box_type=box_type))
 
     # Flag stands: put at base XY, top at floor
     red_flag_stand = (red_base[0], red_base[1], 0.0)

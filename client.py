@@ -9,6 +9,7 @@ from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f
 from panda3d.core import LColor, MouseButton, LineSegs, TextNode
 from panda3d.core import TextNode, TransparencyAttrib, NodePath, LVecBase4f
 from panda3d.core import CompassEffect, BillboardEffect, LColor
+from panda3d.core import GeomNode, GeomVertexReader, GeomVertexWriter, GeomTriangles, GeomVertexFormat
 from panda3d.core import loadPrcFileData
 
 from common.net import send_json, read_json, lan_discovery_broadcast
@@ -443,7 +444,7 @@ class GameApp(ShowBase):
 
         # arena
         size_x, size_y = cfg["gameplay"]["arena_size_m"]
-        self.mapdata = generate(seed=42, size_x=size_x, size_z=size_y)
+        self.mapdata = generate(seed=42, size_x=size_x, size_z=size_y, cubes=cfg.get("cubes", {}))
 
         # floor plane (visual only)
         cm = self.render.attachNewNode("floor")
@@ -453,13 +454,177 @@ class GameApp(ShowBase):
         floor.setColor(0.2, 0.2, 0.22, 1)
         floor.reparentTo(cm)
 
-        # obstacles
-        for b in self.mapdata.blocks:
-            model = self.loader.loadModel("models/box")
-            model.setScale(b.size[0], b.size[1], b.size[2])
-            model.setPos(b.pos[0], b.pos[1], b.pos[2])
-            model.setColor(0.6, 0.6, 0.6, 1)
-            model.reparentTo(self.render)
+        # --- Obstacles: glTF cube + simplepbr with per-instance UV remap ---
+        # Enable simplepbr for proper glTF PBR if available
+        self._pbr = None
+        try:
+            import simplepbr
+            self._pbr = simplepbr.init(use_normal_maps=True, max_lights=8)
+            try:
+                self._pbr.exposure = float((self.settings or {}).get("video", {}).get("pbr_exposure", -0.5))
+            except Exception:
+                pass
+            print("[obstacles] simplepbr pipeline active")
+        except Exception as e:
+            print(f"[obstacles] simplepbr not active: {e}")
+
+        # Load cube.glb via python gltf loader
+        self.cube_template = None
+        try:
+            import gltf
+            self.cube_template = gltf.load_model("models/cube.glb")
+            if not hasattr(self.cube_template, 'findAllMatches'):
+                self.cube_template = NodePath(self.cube_template)
+        except Exception as e:
+            print(f"[obstacles] Failed to load models/cube.glb: {e}")
+            self.cube_template = None
+
+        def _tile_pair_from(val, grid):
+            # Accept either a single index or a [tx,ty] pair
+            try:
+                if isinstance(val, (list, tuple)) and len(val) == 2:
+                    tx = int(val[0]); ty = int(val[1])
+                    return (max(0, min(grid[0]-1, tx)), max(0, min(grid[1]-1, ty)))
+            except Exception:
+                pass
+            try:
+                idx = int(val)
+            except Exception:
+                idx = 0
+            # Default 2x2 mapping
+            return (idx % grid[0], idx // grid[0])
+
+        def _atlas_cfg():
+            # Pull mapping from config if present
+            try:
+                return dict(self.cfg.get('cube_atlas', {}))
+            except Exception:
+                return {}
+
+        def _face_tiles_for_type(t: int):
+            atlas = _atlas_cfg()
+            grid = atlas.get('grid', [2,2])
+            types = atlas.get('types', {})
+            spec = types.get(str(int(t))) or types.get(int(t))
+            if spec is None:
+                # Fallback defaults
+                defaults = {
+                    '0': { 'all': 0, 'top': 2 },
+                    '1': { 'all': 1, 'top': 3 },
+                    '2': { 'all': 2 },
+                    '3': { 'all': 3 },
+                }
+                spec = defaults.get(str(int(t)), defaults['0'])
+            faces = {}
+            if 'all' in spec:
+                pair = _tile_pair_from(spec['all'], grid)
+                for f in ('+x','-x','+y','-y','+z','-z'):
+                    faces[f] = pair
+            for k,v in spec.items():
+                if k == 'all':
+                    continue
+                key = k if str(k).startswith(('+','-')) else str(k)
+                faces[key] = _tile_pair_from(v, grid)
+            return faces
+
+        def _uv_remap_to_tiles(root: NodePath, face_tiles, grid=(2,2)):
+            # duplicate geoms so this instance is unique
+            col = root.findAllMatches('**/+GeomNode')
+            for i in range(col.getNumPaths()):
+                gnp = col.getPath(i)
+                gnode = gnp.node()
+                for gi in range(gnode.getNumGeoms()):
+                    gnode.setGeom(gi, gnode.getGeom(gi).makeCopy())
+
+            aliases = {'right': '+x', 'left': '-x', 'front': '+y', 'back': '-y', 'top': '+z', 'bottom': '-z'}
+            wanted = {}
+            for k, v in face_tiles.items():
+                kk = aliases.get(str(k).lower(), str(k).lower())
+                wanted[kk] = v
+
+            tile_w, tile_h = 1.0/grid[0], 1.0/grid[1]
+
+            def classify(p0, p1, p2):
+                n = (p1 - p0).cross(p2 - p0)
+                if n.lengthSquared() == 0: return 'unknown'
+                n.normalize()
+                ax, ay, az = abs(n.x), abs(n.y), abs(n.z)
+                if ax >= ay and ax >= az: return '+x' if n.x>0 else '-x'
+                if ay >= ax and ay >= az: return '+y' if n.y>0 else '-y'
+                return '+z' if n.z>0 else '-z'
+
+            for i in range(col.getNumPaths()):
+                gnp = col.getPath(i)
+                gnode = gnp.node()
+                for gi in range(gnode.getNumGeoms()):
+                    geom = gnode.modifyGeom(gi)
+                    vdata = geom.modifyVertexData()
+                    # discover UV column
+                    uv_name = None
+                    fmt = vdata.getFormat()
+                    try:
+                        for ai in range(fmt.getNumArrays()):
+                            arr = fmt.getArray(ai)
+                            for ci in range(arr.getNumColumns()):
+                                nm = arr.getColumn(ci).getName().getName()
+                                if 'texcoord' in nm.lower():
+                                    uv_name = nm; raise StopIteration
+                    except StopIteration:
+                        pass
+                    if uv_name is None:
+                        continue
+                    rdr_v = GeomVertexReader(vdata, 'vertex')
+                    rdr_uv = GeomVertexReader(vdata, uv_name)
+                    wtr_uv = GeomVertexWriter(vdata, uv_name)
+                    for p in range(geom.getNumPrimitives()):
+                        prim = geom.modifyPrimitive(p).decompose()
+                        geom.setPrimitive(p, prim)
+                        nverts = prim.getNumVertices()
+                        for vi in range(0, nverts, 3):
+                            i0 = prim.getVertex(vi)
+                            i1 = prim.getVertex(vi+1)
+                            i2 = prim.getVertex(vi+2)
+                            rdr_v.setRow(i0); p0 = rdr_v.getData3f()
+                            rdr_v.setRow(i1); p1 = rdr_v.getData3f()
+                            rdr_v.setRow(i2); p2 = rdr_v.getData3f()
+                            face = classify(p0,p1,p2)
+                            if face not in wanted:
+                                continue
+                            tx, ty = wanted[face]
+                            off_u, off_v = tx*tile_w, ty*tile_h
+                            for idx in (i0,i1,i2):
+                                rdr_uv.setRow(idx); u,v = rdr_uv.getData2f()
+                                wtr_uv.setRow(idx); wtr_uv.setData2f(off_u + u*tile_w, off_v + v*tile_h)
+
+        if self.cube_template is not None:
+            # Pre-bake a small set of variants (0..3) by remapping UVs once per type,
+            # then instance those variants for each block. This avoids rewriting
+            # vertex data for every single block.
+            self.cube_variants = {}
+            for t in range(4):
+                base_np = self.cube_template.copyTo(NodePath('cube_variants'))
+                try:
+                    _uv_remap_to_tiles(base_np, _face_tiles_for_type(t))
+                except Exception as e:
+                    print(f"[obstacles] variant {t} UV remap failed: {e}")
+                self.cube_variants[t] = base_np
+            print('[obstacles] prepared cube variants for types 0..3')
+
+            first = True
+            for b in self.mapdata.blocks:
+                t = int(getattr(b, 'box_type', 0)) % 4
+                src = self.cube_variants.get(t, self.cube_template)
+                inst = src.copyTo(self.render)
+                inst.setPos(b.pos[0], b.pos[1], b.pos[2])
+                sx, sy, sz = b.size
+                if (abs(sx - 1.0) > 1e-6) or (abs(sy - 1.0) > 1e-6) or (abs(sz - 1.0) > 1e-6):
+                    inst.setScale(sx, sy, sz)
+                if first:
+                    try:
+                        print('[obstacles] first instance textures:', [t.getName() for t in inst.findAllTextures()], 'type:', getattr(b,'box_type',0))
+                    except Exception:
+                        pass
+                    first = False
 
         # bases / beacons
         self.red_beacon = self.loader.loadModel("models/box")

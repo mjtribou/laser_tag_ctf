@@ -23,8 +23,8 @@
   },
 
   "video": {
-    "fullscreen": true,
-    "resolution": [1920, 1080],
+    "fullscreen": false,
+    "resolution": [1280, 720],
     "vsync": false,
     "max_fps": 120,
     "render_distance": 120.0,

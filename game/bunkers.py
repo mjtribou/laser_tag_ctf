@@ -14,6 +14,7 @@ except Exception:
     class Block:
         pos: Tuple[float, float, float]
         size: Tuple[float, float, float]
+        box_type: int = 0
 
 # ---- Data types -------------------------------------------------------------
 
@@ -115,7 +116,8 @@ def instantiate_blocks(shape: VoxelShape,
         wx = cx + (ix - ax) * cube
         wy = cy + (iy - ay) * cube
         wz = (iz + 0.5 - az) * cube   # each cube center at (k + 0.5) * cube
-        blocks.append(Block(pos=(wx, wy, wz), size=(cube, cube, cube)))
+        # Default bunker cube type 0 for a subtle visual distinction
+        blocks.append(Block(pos=(wx, wy, wz), size=(cube, cube, cube), box_type=0))
     return blocks
 
 def place_bunkers(mapdata,

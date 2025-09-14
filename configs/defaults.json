@@ -49,11 +49,20 @@
   },
   "cubes": {
     "size": 1.0,
-    "max_height": 3,
-    "fill_prob": 0.09,
+    "max_height": 5,
+    "fill_prob": 0.01,
     "stack_prob": 0.55,
     "symmetry": "even",
     "spawn_clear_radius": 6
+  },
+  "cube_atlas": {
+    "grid": [2, 2],
+    "types": {
+      "0": { "all": 0, "top": 2 },
+      "1": { "all": 1, "top": 3 },
+      "2": { "all": 2 },
+      "3": { "all": 3 }
+    }
   },
   "bunkers": {
     "file": "configs/bunkers.json",
