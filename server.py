@@ -661,7 +661,16 @@ class LaserTagServer:
                 if victim_pid is not None:
                     self._tag_player(victim_pid, attacker=p.pid, hit_point=hit_pt, shot_dir=shot_dir)
 
-        p.recoil_accum = max(0.0, p.recoil_accum - float(self.cfg["gameplay"]["recoil_decay_per_sec_deg"]) * dt)
+        # Exponential recoil decay to match client: a(t+dt) = a(t) * exp(-hz * dt)
+        try:
+            decay_hz = float(self.cfg["gameplay"].get("recoil_decay_hz", 7.5))
+        except Exception:
+            decay_hz = 7.5
+        if decay_hz > 0.0 and p.recoil_accum > 0.0:
+            p.recoil_accum *= math.exp(-decay_hz * max(0.0, dt))
+            # Snap tiny values to zero to avoid lingering tail
+            if p.recoil_accum < 1e-4:
+                p.recoil_accum = 0.0
 
     def _tag_player(self, victim_pid: int, attacker: Optional[int] = None,
                     hit_point: Optional[Tuple[float,float,float]] = None,
