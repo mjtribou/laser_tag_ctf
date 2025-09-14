@@ -442,15 +442,20 @@ class GameApp(ShowBase):
         self.shots_per_mag = int(gp_cfg.get("shots_per_mag", 20))
         self.reload_seconds = float(gp_cfg.get("reload_seconds", 1.5))
         self.rapid_fire_rate = float(gp_cfg.get("rapid_fire_rate_hz", 10.0))
-        recoil_cfg = gp_cfg.get("camera_recoil", {})
-        self.recoil_pitch_base = float(recoil_cfg.get("pitch_base_deg", 1.0))
-        self.recoil_pitch_step = float(recoil_cfg.get("pitch_step_deg", 0.1))
-        self.recoil_yaw_step = float(recoil_cfg.get("yaw_step_deg", 0.3))
-        self.recoil_burst_reset = float(recoil_cfg.get("burst_reset_s", 0.3))
+        # Recoil model (client-side aim offsets only)
+        # Use simplified gameplay keys; ignore legacy camera_recoil block.
+        self.recoil_per_shot_deg = float(gp_cfg.get("recoil_per_shot_deg", 0.1))
+        # Exponential decay rate in Hz (larger = faster return). Fallback preserves behavior if key absent.
+        self.recoil_decay_hz = float(gp_cfg.get("recoil_decay_hz", 7.5))
+        # Recoil offsets (degrees) applied to aim only, not camera/view
+        self.aim_yaw_offset = 0.0
+        self.aim_pitch_offset = 0.0
+        # Track firing/reload state to control when offsets reset
+        self.prev_fire_pressed = False
+        self.was_reloading = False
         self.shots_left = self.shots_per_mag
         self.reload_end = 0.0
         self.last_local_fire = 0.0
-        self.burst_shots = 0
         self.ammo_text = OnscreenText(text=str(self.shots_left), pos=(1.25, -0.95), fg=(1,1,1,1), align=TextNode.ARight, scale=0.07, mayChange=True)
         self.scoreboard = Scoreboard(self)
 
@@ -548,13 +553,9 @@ class GameApp(ShowBase):
 
 
     def _apply_recoil(self):
-        if self.render_time - self.last_local_fire > self.recoil_burst_reset:
-            self.burst_shots = 0
-        self.burst_shots += 1
-        pitch_kick = self.recoil_pitch_base + self.recoil_pitch_step * self.burst_shots
-        yaw_kick = (self.recoil_yaw_step * self.burst_shots) * (1 if self.burst_shots % 2 == 0 else -1)
-        self.pitch = max(-90.0, min(90.0, self.pitch - pitch_kick))
-        self.yaw += yaw_kick
+        # Accumulate recoil into aim offsets (do not move the camera)
+        # Apply a fixed vertical kick per shot. No yaw jitter by default.
+        self.aim_pitch_offset -= float(self.recoil_per_shot_deg)
 
     # --- Interpolation helpers -------------------------------------------
 
@@ -749,6 +750,9 @@ class GameApp(ShowBase):
 
         # Create/update nodes
         for pid in union_pids:
+            # Do not render the local player's own model
+            if my_pid is not None and pid == my_pid:
+                continue
             p0 = d0.get(pid)
             p1 = d1.get(pid) if s1 is not s0 else d0.get(pid)
 
@@ -948,7 +952,6 @@ class GameApp(ShowBase):
                     self.reload_end = self.render_time + reload_left
                 if self.render_time >= self.reload_end and self.shots_left == 0:
                     self.shots_left = self.shots_per_mag
-                    self.burst_shots = 0
 
         if "tab" in self.keys:
             self.scoreboard.show()
@@ -976,7 +979,38 @@ class GameApp(ShowBase):
         self.pitch = max(-90.0, min(90.0, self.pitch))
 
         # apply camera orientation (HPR). Position is handled above via interpolation.
+        # Note: recoil no longer moves the camera; it only affects aim offsets + crosshair.
         self.camera.setHpr(self.yaw, self.pitch, 0)
+
+        # Firing/reloading state used to control recoil reset/decay
+        fire_pressed = self.mouseWatcherNode.is_button_down(MouseButton.one())
+        reloading_now = self.render_time < self.reload_end
+
+        # Smoothly decay offsets back to center when not actively holding fire (exponential by Hz)
+        actively_shooting = fire_pressed and not reloading_now and self.shots_left > 0
+        if not actively_shooting and self.recoil_decay_hz > 0.0:
+            dt_decay = max(0.0, ClockObject.getGlobalClock().getDt())
+            factor = math.exp(-self.recoil_decay_hz * dt_decay)
+            self.aim_pitch_offset *= factor
+            self.aim_yaw_offset *= factor
+
+        # Move crosshair to visualize aim offsets
+        try:
+            lens = self.camLens
+            fov = lens.getFov()  # Vec2(hfov, vfov) in degrees
+            hfov = math.radians(float(fov[0]))
+            vfov = math.radians(float(fov[1]))
+            # Map angular offset to normalized screen offset (fractions of half-screen)
+            x_norm = math.tan(math.radians(self.aim_yaw_offset)) / max(1e-6, math.tan(0.5 * hfov))
+            y_norm = math.tan(math.radians(self.aim_pitch_offset)) / max(1e-6, math.tan(0.5 * vfov))
+            # Convert to aspect2d coordinates: horizontal half-range is aspect, vertical is 1
+            aspect = self.getAspectRatio()
+            x = max(-aspect, min(aspect, x_norm * aspect))
+            y = max(-1.0, min(1.0, y_norm))
+            self.crosshair.setPos(x, y)
+        except Exception:
+            # Fallback: small linear offset if lens data is unavailable
+            self.crosshair.setPos(0.01 * self.aim_yaw_offset, 0.01 * self.aim_pitch_offset)
 
         data = {
             "mx": mx,
@@ -990,15 +1024,15 @@ class GameApp(ShowBase):
             "pitch": self.pitch,
         }
 
-        fire_pressed = self.mouseWatcherNode.is_button_down(MouseButton.one())
         min_dt = 1.0 / max(1e-6, self.rapid_fire_rate)
         can_fire = fire_pressed and self.render_time >= self.reload_end and self.shots_left > 0 and (self.render_time - self.last_local_fire) >= min_dt
         if can_fire:
             self._apply_recoil()
             data["fire"] = True
             data["fire_t"] = self.render_time
-            data["yaw"] = self.yaw
-            data["pitch"] = self.pitch
+            # Apply aim offsets only to the shot direction (not view orientation)
+            data["yaw"] = self.yaw + self.aim_yaw_offset
+            data["pitch"] = self.pitch + self.aim_pitch_offset
             self.shots_left -= 1
             self.last_local_fire = self.render_time
             if self.shots_left == 0:
@@ -1018,6 +1052,10 @@ class GameApp(ShowBase):
 
         if self.client.writer:
             self.net_runner.run_coro(self.client.send_input(data))
+
+        # Update edge trackers for next frame
+        self.prev_fire_pressed = fire_pressed
+        self.was_reloading = reloading_now
 
         return task.cont
 

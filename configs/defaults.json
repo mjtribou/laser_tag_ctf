@@ -26,26 +26,21 @@
       50.0
     ],
     "rapid_fire_rate_hz": 10.0,
-    "recoil_per_shot_deg": 0.4,
+    "recoil_per_shot_deg": -0.2,
     "recoil_decay_per_sec_deg": 5.0,
+    "recoil_decay_hz": 7.5,
     "base_spread_deg": 0.15,
     "spread_move_factor": 0.7,
     "spread_crouch_bonus": -0.08,
     "laser_range_m": 200.0,
     "grenade_max_charge": 1.5,
-    "grenade_throw_speed": 20.0,
+    "grenade_throw_speed": 40.0,
     "grenade_lob_speed": 0.0,
     "grenade_fuse": 3.0,
     "grenade_radius": 10.0,
     "grenade_knockback": 3.0,
     "shots_per_mag": 20,
-    "reload_seconds": 1.5,
-    "camera_recoil": {
-      "pitch_base_deg": -0.5,
-      "pitch_step_deg": -0.1,
-      "yaw_step_deg": 0.01,
-      "burst_reset_s": 0.3
-    }
+    "reload_seconds": 1.5
   },
   "cubes": {
     "size": 1.0,
