@@ -1062,7 +1062,7 @@ class GameApp(ShowBase):
         head_np = parts.get("head")
         if head_np is not None:
             try:
-                head_np.setHpr(0.0, pitch, 0.0)
+                head_np.setHpr(0.0, 0.0, pitch)
             except Exception:
                 pass
 
@@ -1070,7 +1070,7 @@ class GameApp(ShowBase):
         shoulder_r = parts.get("shoulder_r")
         if shoulder_r is not None:
             try:
-                shoulder_r.setHpr(0.0, pitch, 0.0)
+                shoulder_r.setHpr(0.0, 0.0, pitch)
             except Exception:
                 pass
 
