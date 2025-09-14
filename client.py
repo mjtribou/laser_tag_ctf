@@ -702,6 +702,9 @@ class GameApp(ShowBase):
 
         # player representations
         self.player_nodes = {}  # pid -> NodePath
+        self.robot_parts = {}   # pid -> dict(base, body, head, shoulder_r, model)
+        self._prev_pos = {}     # pid -> (x, y)
+        self._last_base_h = {}  # pid -> float last computed base heading
         self.grenade_nodes = {}  # gid -> NodePath
         self._grenade_hold_start = None
         self.explosion_nodes = []  # list of {"node": NodePath, "expire": float}
@@ -997,6 +1000,63 @@ class GameApp(ShowBase):
             return LColor(r, g, b, a)
         return self._neutral_flag_color
 
+    def _animate_robot_parts(self, pid: int, parts: Dict[str, NodePath], yaw: float, pitch: float, roll: float,
+                              p0: Dict[str, Any], p1: Dict[str, Any], s0: Dict[str, Any], s1: Dict[str, Any], a: float,
+                              px: float, py: float):
+        """Animate model subparts by name according to movement and view.
+
+        Root (player node) already has yaw applied.
+        - Base: local heading (H) aligns with velocity direction in world, i.e. H = base_heading_world - yaw.
+        - Head: local pitch (P) follows view pitch; local heading stays 0 (inherits root yaw).
+        - Shoulder.R: local pitch (P) follows view pitch.
+        """
+        # Compute velocity direction from snapshots if possible, else from last pos
+        vx = vy = 0.0
+        if p0 is not None and p1 is not None and (p1 is not p0):
+            try:
+                vx = float(p1["x"]) - float(p0["x"]) ; vy = float(p1["y"]) - float(p0["y"])
+            except Exception:
+                vx = vy = 0.0
+        if abs(vx) < 1e-5 and abs(vy) < 1e-5:
+            prev = self._prev_pos.get(pid)
+            if prev is not None:
+                vx = px - prev[0]; vy = py - prev[1]
+        # Update last pos cache
+        self._prev_pos[pid] = (px, py)
+
+        # Determine base heading in world (degrees). If stationary, reuse last or fall back to yaw.
+        moving = (vx*vx + vy*vy) > 1e-6
+        if moving:
+            base_h = math.degrees(math.atan2(vy, vx))  # Panda3D: H=atan2(x, y)
+            self._last_base_h[pid] = base_h
+        else:
+            base_h = self._last_base_h.get(pid, yaw)
+
+        base_np = parts.get("base")
+        if base_np is not None:
+            try:
+                # Convert world heading to local by subtracting root yaw
+                local_h = base_h - yaw
+                base_np.setHpr(local_h, 0.0, 0.0)
+            except Exception:
+                pass
+
+        # Head follows yaw (inherited via Body) and pitch directly
+        head_np = parts.get("head")
+        if head_np is not None:
+            try:
+                head_np.setHpr(0.0, pitch, 0.0)
+            except Exception:
+                pass
+
+        # Right arm pitch follows view pitch
+        shoulder_r = parts.get("shoulder_r")
+        if shoulder_r is not None:
+            try:
+                shoulder_r.setHpr(0.0, pitch, 0.0)
+            except Exception:
+                pass
+
     def _apply_robot_team_tint(self, model_np: NodePath, team: int):
         """Apply team tint to the robot model's tintable materials only.
 
@@ -1239,6 +1299,21 @@ class GameApp(ShowBase):
                             self._apply_robot_team_tint(model, team)
                         except Exception as e:
                             print(f"[players] tinting materials failed: {e}")
+                        # Cache references to articulated parts by name for later animation
+                        def _part(np, name):
+                            try:
+                                p = np.find(f"**/{name}")
+                                return None if p.isEmpty() else p
+                            except Exception:
+                                return None
+                        parts = {
+                            "model": model,
+                            "base": _part(model, "Base"),
+                            "body": _part(model, "Body"),
+                            "head": _part(model, "Head"),
+                            "shoulder_r": _part(model, "Shoulder.R"),
+                        }
+                        self.robot_parts[pid] = parts
                     except Exception as e:
                         print(f"[players] Robot copy failed: {e}. Using box fallback.")
                         model = None
@@ -1263,7 +1338,14 @@ class GameApp(ShowBase):
                 self.cosmetics.attach(pid, node, name, team)
 
             node.setPos(px, py, pz)
-            node.setHpr(yaw, pitch, roll)
+            # Animate articulated parts if present; else rotate whole node
+            parts = self.robot_parts.get(pid)
+            if parts and any(parts.get(k) for k in ("base","body","head","shoulder_r")):
+                # Rotate the whole robot to match view yaw (root yaw)
+                node.setHpr(yaw, 0.0, 0.0)
+                self._animate_robot_parts(pid, parts, yaw, pitch, roll, p0, p1, s0, s1, a, px, py)
+            else:
+                node.setHpr(yaw, pitch, roll)
 
             alive_state = bool(((p1 or p0) or {}).get("alive", True))
             if not alive_state:
@@ -1281,6 +1363,13 @@ class GameApp(ShowBase):
                     self.cosmetics.detach(pid)
                 self.player_nodes[pid].removeNode()
                 del self.player_nodes[pid]
+                # clear part caches
+                if pid in self.robot_parts:
+                    del self.robot_parts[pid]
+                if pid in self._prev_pos:
+                    del self._prev_pos[pid]
+                if pid in self._last_base_h:
+                    del self._last_base_h[pid]
 
         # --- Grenades ---
         g_present = set()
