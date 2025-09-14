@@ -24,7 +24,7 @@
     "air_acceleration_mps2": 12.0,
     "air_decel_release_mps2": 12.0,
     "air_decel_counter_mps2": 12.0,
-    "jump_speed": 1.8,
+    "jump_speed": 5.0,
     "gravity": 9.81,
     "player_height": 2.0,
     "player_radius": 0.5,
@@ -59,7 +59,7 @@
   "cube_atlas": {
     "grid": [2, 2],
     "types": {
-      "0": { "all": 0, "top": 2 },
+      "0": { "all": 0 },
       "1": { "all": 1, "top": 3 },
       "2": { "all": 2 },
       "3": { "all": 3 }
@@ -104,9 +104,9 @@
       ]
     },
   "laser_visual": {
-    "projectile_speed_mps": 200.0,
-    "streak_length_m": 2.0,
-    "beam_thickness_px": 3.0,
+    "projectile_speed_mps": 300.0,
+    "streak_length_m": 3.0,
+    "beam_thickness_px": 4.0,
     "fadeout_s": 0.05
   },
   "ragdoll": {

@@ -151,6 +151,7 @@ class LaserTagServer:
 
         ch = BulletCharacterControllerNode(shape, step_height, f"char_{pid}")
         ch.setGravity(float(self.cfg["gameplay"]["gravity"]))
+        ch.setJumpSpeed(float(self.cfg["gameplay"].get("jump_speed", 3.0)))
         ch.setIntoCollideMask(MASK_SOLID)  # collide with static world
 
         np = self._root.attachNewNode(ch)

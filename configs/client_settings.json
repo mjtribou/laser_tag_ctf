@@ -42,7 +42,7 @@
 
   "cosmetics": {
     "nameplates": { "enabled": true, "for": "team_only", "max_distance": 45, "fade_start": 30, "scale": 0.55 },
-    "teammate_marker": { "enabled": true, "alpha": 0.9, "max_distance": 70, "fade_start": 40, "scale": 0.6 }
+    "teammate_marker": { "enabled": true, "alpha": 0.9, "max_distance": 70, "fade_start": 40, "scale": 0.6, "style": "chevron" }
   },
 
   "server_prefs": {
