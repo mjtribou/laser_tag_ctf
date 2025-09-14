@@ -6,6 +6,7 @@
 ## Features implemented (MVP)
 - Panda3D renderer, Bullet world scaffold
 - Authoritative server (`server.py`) runs game loop, flags (pickup/drop/auto‑return), captures (win at 3), 3s respawn
+- Default game mode: single center‑flag CTF (neutral flag spawns at arena center; either team can capture by returning it to their base)
 - Hitscan lasers with server‑side validation, recoil accumulation, accuracy penalties while moving; crouch improves accuracy
 - Basic 5v5 via **bot fill** (dumb patrol/engage behavior) + human players
 - Symmetric **procedural block arena** (~80×50m) with team‑colored base beacons

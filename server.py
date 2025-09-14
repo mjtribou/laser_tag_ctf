@@ -6,7 +6,7 @@ from bisect import bisect_right
 
 from common.net import read_json, send_json, lan_discovery_server
 from game.constants import (
-    TEAM_RED, TEAM_BLUE, MAX_PLAYERS,
+    TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL, MAX_PLAYERS,
     PLAYER_HEIGHT, PLAYER_RADIUS,
     FLAG_PICKUP_RADIUS, FLAG_RETURN_RADIUS, BASE_CAPTURE_RADIUS,
 )
@@ -49,12 +49,11 @@ class LaserTagServer:
         cube_cfg = self.cfg.get("cubes", {})
         self.mapdata = generate(seed=42, size_x=size_x, size_z=size_z, cubes=cube_cfg)
 
-        # flags
-        red_flag = Flag(team=TEAM_RED, at_base=True, carried_by=None,
-                        x=self.mapdata.red_flag_stand[0], y=self.mapdata.red_flag_stand[1], z=0.0)
-        blue_flag = Flag(team=TEAM_BLUE, at_base=True, carried_by=None,
-                         x=self.mapdata.blue_flag_stand[0], y=self.mapdata.blue_flag_stand[1], z=0.0)
-        self.gs.flags = {TEAM_RED: red_flag, TEAM_BLUE: blue_flag}
+        # Single center-flag mode: spawn one neutral flag at arena center
+        cx, cy, cz = getattr(self.mapdata, "neutral_flag_stand", (0.0, 0.0, 0.0))
+        neutral_flag = Flag(team=TEAM_NEUTRAL, at_base=True, carried_by=None,
+                            x=cx, y=cy, z=cz)
+        self.gs.flags = {TEAM_NEUTRAL: neutral_flag}
 
         # networking / gameplay
         self.clients: Dict[int, asyncio.StreamWriter] = {}
@@ -273,6 +272,15 @@ class LaserTagServer:
             self._char_np[pid].setPos(x, y, z)
 
     # ---------- Game mechanics ----------
+    def _flag_home_pos(self, fl: Flag) -> Tuple[float, float, float]:
+        """Return the home stand position for a flag (team or neutral)."""
+        if fl.team == TEAM_RED:
+            return self.mapdata.red_flag_stand
+        if fl.team == TEAM_BLUE:
+            return self.mapdata.blue_flag_stand
+        # Neutral / single-flag
+        return getattr(self.mapdata, "neutral_flag_stand", (0.0, 0.0, 0.0))
+
     def _drop_flag(self, team_flag: int, x: float, y: float, z: float):
         fl = self.gs.flags[team_flag]
         fl.carried_by = None
@@ -282,11 +290,12 @@ class LaserTagServer:
 
     def _pickup_try(self, p: Player):
         for team_flag, fl in self.gs.flags.items():
-            if team_flag == p.team:
+            # Returning own flag (legacy two-flag CTF) — not applicable for neutral flag
+            if team_flag in (TEAM_RED, TEAM_BLUE) and team_flag == p.team:
                 d = math.hypot(p.x - fl.x, p.y - fl.y)
                 if (not fl.at_base) and fl.carried_by is None and d <= FLAG_RETURN_RADIUS:
                     fl.at_base = True
-                    fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
+                    fx, fy, fz = self._flag_home_pos(fl)
                     fl.x, fl.y, fl.z = fx, fy, fz
                     fl.dropped_at_time = 0.0
                     p.defences += 1
@@ -295,7 +304,7 @@ class LaserTagServer:
             if fl.carried_by is not None:
                 continue
             if fl.at_base:
-                fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
+                fx, fy, fz = self._flag_home_pos(fl)
             else:
                 fx, fy, fz = fl.x, fl.y, fl.z
             d = math.hypot(p.x - fx, p.y - fy)
@@ -303,12 +312,20 @@ class LaserTagServer:
                 fl.carried_by = p.pid
                 fl.at_base = False
                 fl.x, fl.y, fl.z = p.x, p.y, p.z + 0.8
+                # Track on player so bots/clients can react
+                try:
+                    p.carrying_flag = team_flag
+                except Exception:
+                    pass
 
     def _carry_flags_update(self):
-        for fl in self.gs.flags.values():
+        for team_flag, fl in self.gs.flags.items():
             if fl.carried_by and fl.carried_by in self.gs.players:
                 carrier = self.gs.players[fl.carried_by]
                 fl.x, fl.y, fl.z = carrier.x, carrier.y, carrier.z + 0.8
+                # Keep player's carrying_flag in sync (helps bot behavior)
+                if getattr(carrier, "carrying_flag", None) != team_flag:
+                    carrier.carrying_flag = team_flag
 
     def _dropped_flags_auto_return(self):
         ttl = float(self.cfg["server"]["flag_return_seconds"])
@@ -318,7 +335,7 @@ class LaserTagServer:
                 if (t - fl.dropped_at_time) >= ttl:
                     fl.at_base = True
                     fl.dropped_at_time = 0.0
-                    fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
+                    fx, fy, fz = self._flag_home_pos(fl)
                     fl.x, fl.y, fl.z = fx, fy, fz
 
     def _check_captures(self):
@@ -331,17 +348,38 @@ class LaserTagServer:
         for pid, p in list(self.gs.players.items()):
             if not p.alive:
                 continue
+            # Single-flag mode (neutral flag)
+            if len(self.gs.flags) == 1 and (TEAM_NEUTRAL in self.gs.flags):
+                fl = next(iter(self.gs.flags.values()))
+                if fl.carried_by != pid:
+                    continue
+                bx, by, bz = (self.mapdata.red_base if p.team == TEAM_RED else self.mapdata.blue_base)
+                if math.hypot(p.x - bx, p.y - by) <= BASE_CAPTURE_RADIUS:
+                    self.gs.teams[p.team].captures += 1
+                    fl.carried_by = None
+                    p.captures += 1
+                    # Clear carrier flag
+                    p.carrying_flag = None
+                    # Return neutral flag to center
+                    fl.at_base = True
+                    fx, fy, fz = self._flag_home_pos(fl)
+                    fl.x, fl.y, fl.z = fx, fy, fz
+                    print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
+                continue
+
+            # Legacy two-flag mode fallback
             enemy_flag_team = TEAM_BLUE if p.team == TEAM_RED else TEAM_RED
-            fl = self.gs.flags[enemy_flag_team]
-            if fl.carried_by != pid:
+            fl = self.gs.flags.get(enemy_flag_team)
+            if not fl or fl.carried_by != pid:
                 continue
             bx, by, bz = (self.mapdata.red_base if p.team == TEAM_RED else self.mapdata.blue_base)
             if math.hypot(p.x - bx, p.y - by) <= BASE_CAPTURE_RADIUS:
                 self.gs.teams[p.team].captures += 1
                 fl.carried_by = None
                 p.captures += 1
+                p.carrying_flag = None
                 fl.at_base = True
-                fx, fy, fz = (self.mapdata.red_flag_stand if fl.team == TEAM_RED else self.mapdata.blue_flag_stand)
+                fx, fy, fz = self._flag_home_pos(fl)
                 fl.x, fl.y, fl.z = fx, fy, fz
                 print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
 
@@ -717,10 +755,14 @@ class LaserTagServer:
             except Exception:
                 pass
 
-        # Drop any carried flag where they are
+        # Drop any carried flag where they are and clear player carry state
         for team_flag, fl in self.gs.flags.items():
             if fl.carried_by == victim_pid:
                 self._drop_flag(team_flag, v.x, v.y, v.z)
+                try:
+                    v.carrying_flag = None
+                except Exception:
+                    pass
 
         # === NEW: swap KCC -> dynamic rigid body "corpse" ===
         # Remove character controller from world to avoid double-collision

@@ -2,6 +2,8 @@
 
 TEAM_RED = 0
 TEAM_BLUE = 1
+# Neutral flag identifier (used for single-flag CTF mode)
+TEAM_NEUTRAL = 2
 MAX_PLAYERS = 10
 
 PLAYER_RADIUS = 0.35

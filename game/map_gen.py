@@ -16,6 +16,8 @@ class MapData:
     blue_base: Tuple[float, float, float]
     red_flag_stand: Tuple[float, float, float]
     blue_flag_stand: Tuple[float, float, float]
+    # Center-flag CTF support: neutral flag stand at arena center
+    neutral_flag_stand: Tuple[float, float, float]
     bounds: Tuple[float, float]  # (x_size, z_size) — Panda uses X right, Y forward, Z up
     cube_size: float = 1.0       # new: grid cell size (meters)
     agent_radius: float = 0.5    # new: used by navgrid if present
@@ -154,6 +156,8 @@ def generate(seed: int,
     # Flag stands: put at base XY, top at floor
     red_flag_stand = (red_base[0], red_base[1], 0.0)
     blue_flag_stand = (blue_base[0], blue_base[1], 0.0)
+    # Single-flag mode: neutral flag at arena center on the floor
+    neutral_flag_stand = (0.0, 0.0, 0.0)
 
     mapdata = MapData(
         blocks=blocks,
@@ -161,6 +165,7 @@ def generate(seed: int,
         blue_base=blue_base,
         red_flag_stand=red_flag_stand,
         blue_flag_stand=blue_flag_stand,
+        neutral_flag_stand=neutral_flag_stand,
         bounds=(size_x, size_z),
         cube_size=cube,
         agent_radius=0.5  # matches 1-cube width

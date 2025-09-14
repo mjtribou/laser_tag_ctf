@@ -12,7 +12,7 @@ from panda3d.core import CompassEffect, BillboardEffect, LColor
 from panda3d.core import loadPrcFileData
 
 from common.net import send_json, read_json, lan_discovery_broadcast
-from game.constants import TEAM_RED, TEAM_BLUE
+from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL
 from scoreboard import Scoreboard
 from game.map_gen import generate
 
@@ -496,6 +496,28 @@ class GameApp(ShowBase):
         self._grenade_hold_start = None
         self.explosion_nodes = []  # list of {"node": NodePath, "expire": float}
 
+        # flag visuals
+        self.flag_template = None
+        self.flag_nodes: Dict[int, NodePath] = {}  # key: team id (TEAM_NEUTRAL or team flag id) -> NodePath
+        self._flag_bounds = None  # (min_v, max_v) if loaded
+        try:
+            self.flag_template = self.loader.loadModel("models/flag.glb")
+            b = self.flag_template.getTightBounds()
+            if b is not None:
+                self._flag_bounds = (b[0], b[1])
+        except Exception as e:
+            print(f"[init] Could not load models/flag.glb: {e}. Using box fallback.")
+            self.flag_template = self.loader.loadModel("models/box")
+        # determine neutral color (distinct from teams)
+        try:
+            col = self.cfg.get("colors", {}).get("neutral_flag")
+            if col is None:
+                # bright gold/yellow default (distinct from red/blue)
+                col = [1.0, 0.92, 0.25, 1.0]
+            self._neutral_flag_color = LColor(*col)
+        except Exception:
+            self._neutral_flag_color = LColor(1.0, 0.92, 0.25, 1.0)
+
         # cosmetics
         self.local_team = None  # filled post-handshake
         self.cosmetics = CosmeticsManager(self)
@@ -755,6 +777,63 @@ class GameApp(ShowBase):
             segs.drawTo(x1, y1, z1)
             self.beam_group.attachNewNode(segs.create())
 
+    def _get_flag_color(self, team: int) -> LColor:
+        colors = self.cfg.get("colors", {})
+        if team == TEAM_RED:
+            r, g, b, a = colors.get("team_red", (1.0, 0.25, 0.25, 1.0))
+            return LColor(r, g, b, a)
+        if team == TEAM_BLUE:
+            r, g, b, a = colors.get("team_blue", (0.25, 0.5, 1.0, 1.0))
+            return LColor(r, g, b, a)
+        return self._neutral_flag_color
+
+    def _render_flags(self, s0, s1, alpha):
+        # Merge the two snapshots' flags into a dict by team id for interpolation
+        f0 = {f.get("team"): f for f in (s0.get("flags", []) if s0 else [])}
+        f1 = {f.get("team"): f for f in (s1.get("flags", []) if s1 else [])}
+        teams = set(f0.keys()) | set(f1.keys())
+
+        # Remove nodes for flags no longer present
+        for team in list(self.flag_nodes.keys()):
+            if team not in teams:
+                np = self.flag_nodes.pop(team, None)
+                if np is not None:
+                    np.removeNode()
+
+        # Create/update nodes
+        for team in teams:
+            a0 = f0.get(team)
+            a1 = f1.get(team) if s1 is not s0 else f0.get(team)
+            if a0 is None and a1 is None:
+                continue
+
+            if a0 is None:
+                x = a1["x"]; y = a1["y"]; z = a1["z"]
+            elif a1 is None:
+                x = a0["x"]; y = a0["y"]; z = a0["z"]
+            else:
+                x = (1 - alpha) * a0["x"] + alpha * a1["x"]
+                y = (1 - alpha) * a0["y"] + alpha * a1["y"]
+                z = (1 - alpha) * a0["z"] + alpha * a1["z"]
+
+            root = self.flag_nodes.get(team)
+            if root is None:
+                # Create a root so we can offset the model relative to (x,y,z)
+                root = self.render.attachNewNode(f"flag-{team}")
+                try:
+                    scale = float(self.cfg.get("flag", {}).get("scale", 1.2))
+                except Exception:
+                    scale = 1.2
+                root.setScale(scale)
+                model_np = self.flag_template.copyTo(root)
+                # Apply tint
+                model_np.setColorScale(self._get_flag_color(team))
+                # Do not add vertical offset: model origin is at base
+                self.flag_nodes[team] = root
+
+            # Position
+            root.setPos(x, y, z)
+
     def _clip_to_obstacles(self, x, y, z, radius=0.38, epsilon=0.02):
         """
         Keep (x,y) out of any block AABB that intersects height z by pushing it
@@ -1000,6 +1079,8 @@ class GameApp(ShowBase):
 
         # draw recent beams from the current snapshots
         self._render_beams(s0, s1, a)
+        # draw flags (neutral/team)
+        self._render_flags(s0, s1, a)
 
         # update cosmetics (distance fade + billboards)
         if hasattr(self, "cosmetics"):
