@@ -1,5 +1,5 @@
 # client.py
-import sys, asyncio, json, time, math, argparse, threading, random
+import sys, asyncio, json, time, math, argparse, threading, random, os
 from typing import Dict, Any, List, Tuple
 from bisect import bisect, bisect_right
 
@@ -9,6 +9,7 @@ from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f
 from panda3d.core import LColor, MouseButton, LineSegs, TextNode
 from panda3d.core import TextNode, TransparencyAttrib, NodePath, LVecBase4f
 from panda3d.core import CompassEffect, BillboardEffect, LColor
+from panda3d.core import loadPrcFileData
 
 from common.net import send_json, read_json, lan_discovery_broadcast
 from game.constants import TEAM_RED, TEAM_BLUE
@@ -31,7 +32,22 @@ class CosmeticsManager:
     """
     def __init__(self, client):
         self.client = client
-        self.cfg = client.cfg.get("cosmetics", {})
+        # Prefer client-side overrides if provided
+        try:
+            self.cfg = dict(client.cfg.get("cosmetics", {}))
+            settings_cos = (client.settings or {}).get("cosmetics", {}) if hasattr(client, "settings") else {}
+            if settings_cos:
+                # shallow merge; nested blocks handled as whole
+                for k, v in settings_cos.items():
+                    self.cfg[k] = v
+            # If profile headgear preference exists, set as default for this client name
+            prof = (client.settings or {}).get("profile", {}) if hasattr(client, "settings") else {}
+            hg_pref = prof.get("headgear") if isinstance(prof, dict) else None
+            if isinstance(hg_pref, dict):
+                self.cfg.setdefault("headgear", {}).setdefault("default", {})
+                self.cfg["headgear"]["default"].update(hg_pref)
+        except Exception:
+            self.cfg = client.cfg.get("cosmetics", {})
         self.by_pid = {}  # pid -> dict(root, head_anchor, headgear_np, name_np, caret_np, team)
         # Cache palette and helpers
         hg = self.cfg.get("headgear", {})
@@ -261,6 +277,50 @@ def load_config(path: str) -> Dict[str, Any]:
         return json.load(f)
 
 
+def load_settings(path: str) -> Dict[str, Any]:
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except FileNotFoundError:
+        return {}
+    except Exception as e:
+        print(f"[settings] failed to load {path}: {e}")
+        return {}
+
+
+def apply_prc_from_settings(settings: Dict[str, Any]):
+    """Apply Panda3D PRC (engine) settings before ShowBase init."""
+    vid = settings.get("video", {}) if settings else {}
+    aud = settings.get("audio", {}) if settings else {}
+    # Window size and fullscreen
+    try:
+        res = vid.get("resolution")
+        if isinstance(res, list) and len(res) == 2:
+            w, h = int(res[0]), int(res[1])
+            loadPrcFileData("client-video", f"win-size {w} {h}")
+    except Exception:
+        pass
+    try:
+        if "fullscreen" in vid:
+            fs = bool(vid.get("fullscreen", False))
+            loadPrcFileData("client-video", f"fullscreen {'#t' if fs else '#f'}")
+    except Exception:
+        pass
+    try:
+        if "vsync" in vid:
+            vs = bool(vid.get("vsync", True))
+            loadPrcFileData("client-video", f"sync-video {1 if vs else 0}")
+    except Exception:
+        pass
+    # Audio device hint (must be set pre-initialization)
+    try:
+        dev = aud.get("device")
+        if isinstance(dev, str) and dev:
+            loadPrcFileData("client-audio", f"audio-device {dev}")
+    except Exception:
+        pass
+
+
 class AsyncRunner:
     def __init__(self):
         self.loop = asyncio.new_event_loop()
@@ -277,9 +337,10 @@ class AsyncRunner:
 
 
 class NetworkClient:
-    def __init__(self, cfg, name="Player"):
+    def __init__(self, cfg, name="Player", team_pref: str = "auto"):
         self.cfg = cfg
         self.name = name
+        self.team_pref = team_pref
         self.reader = None
         self.writer = None
         self.pid = None
@@ -289,7 +350,7 @@ class NetworkClient:
 
     async def connect(self, host: str, port: int):
         self.reader, self.writer = await asyncio.open_connection(host, port)
-        await send_json(self.writer, {"type": "hello", "name": self.name})
+        await send_json(self.writer, {"type": "hello", "name": self.name, "team_preference": self.team_pref})
         welcome = await read_json(self.reader)
         self.pid = welcome["pid"]
         self.team = welcome["team"]
@@ -321,21 +382,38 @@ def _angle_lerp_deg(a: float, b: float, t: float) -> float:
 
 
 class GameApp(ShowBase):
-    def __init__(self, cfg, host: str, port: int, name: str, interp_delay: float, interp_predict: float = 0.0):
+    def __init__(self, cfg, host: str, port: int, name: str, interp_delay: float, interp_predict: float = 0.0, settings: Dict[str, Any] = None, team_pref: str = "auto"):
         ShowBase.__init__(self)
         self.set_background_color(0.05, 0.05, 0.07, 1)
         self.disableMouse()
 
+        self.settings = settings or {}
+
         cam_cfg = cfg.get("camera", {})
         near = float(cam_cfg.get("near", 0.03))
-        far  = float(cam_cfg.get("far", 300.0))
+        far  = float(self.settings.get("video", {}).get("render_distance", cam_cfg.get("far", 300.0)))
         base.camLens.setNear(near)
         base.camLens.setFar(far)
+        # Optional FOV override
+        try:
+            fov = self.settings.get("controls", {}).get("fov")
+            if fov is not None:
+                base.camLens.setFov(float(fov))
+        except Exception:
+            pass
 
         self.cfg = cfg
-        self.client = NetworkClient(cfg, name=name)
+        self.client = NetworkClient(cfg, name=name, team_pref=team_pref)
         self.host, self.port = host, port
         self.yaw, self.pitch = 0.0, 0.0
+        # Controls overrides (mouse_sensitivity, invert_y, toggle_crouch)
+        self._controls = dict(cfg.get("controls", {}))
+        try:
+            self._controls.update(self.settings.get("controls", {}))
+        except Exception:
+            pass
+        self._invert_y = bool(self._controls.get("invert_y", False))
+        self._toggle_crouch = bool(self._controls.get("toggle_crouch", False))
 
         # --- Interpolation state ---
         # We keep server snapshots sorted by their embedded server time.
@@ -430,6 +508,11 @@ class GameApp(ShowBase):
         # UI text (simple crosshair)
         from direct.gui.OnscreenText import OnscreenText
         self.crosshair = OnscreenText(text="+", pos=(0, 0), fg=(1, 1, 1, 1), scale=0.08, mayChange=True)
+        # Optional debug netgraph
+        self._netgraph_enabled = bool((self.settings or {}).get("debug", {}).get("netgraph", False))
+        self._netgraph = None
+        if self._netgraph_enabled:
+            self._netgraph = OnscreenText(text="", pos=(-1.3, 0.95), fg=(0.8, 1.0, 0.8, 1), align=TextNode.ALeft, scale=0.04, mayChange=True)
         # --- Killfeed HUD state ---
         hud_cfg = self.cfg.get("hud", {})
         self._kill_ttl   = float(hud_cfg.get("killfeed_ttl", 4.0))
@@ -534,6 +617,11 @@ class GameApp(ShowBase):
     # --- Input handling ---------------------------------------------------
 
     def on_key(self, key, down):
+        # Support toggle crouch via settings
+        if key == "control" and self._toggle_crouch:
+            if down:
+                self._crouch_toggle_state = not bool(getattr(self, "_crouch_toggle_state", False))
+            return
         if down:
             self.keys.add(key)
         else:
@@ -546,7 +634,7 @@ class GameApp(ShowBase):
         # convert to deltas by recentering each frame
         x = m.getX()
         y = m.getY()
-        sens = self.cfg["controls"]["mouse_sensitivity"]
+        sens = float(self._controls.get("mouse_sensitivity", self.cfg.get("controls", {}).get("mouse_sensitivity", 0.12)))
         dx, dy = x * sens * 100.0, y * sens * 100.0
         self.win.movePointer(0, int(self.win.getXSize() / 2), int(self.win.getYSize() / 2))
         return dx, dy
@@ -973,7 +1061,7 @@ class GameApp(ShowBase):
 
         # mouse deltas → local yaw/pitch (degrees)
         dx, dy = self.poll_mouse()
-        invert = bool(self.cfg["controls"].get("invert_y", False))
+        invert = self._invert_y
         self.yaw += -dx
         self.pitch += (-dy if invert else dy)
         self.pitch = max(-90.0, min(90.0, self.pitch))
@@ -1016,7 +1104,7 @@ class GameApp(ShowBase):
             "mx": mx,
             "mz": mz,
             "jump": "space" in self.keys,
-            "crouch": "control" in self.keys,
+            "crouch": ("control" in self.keys) if not self._toggle_crouch else bool(getattr(self, "_crouch_toggle_state", False)),
             "walk": "shift" in self.keys,
             "fire": False,
             "interact": "e" in self.keys,
@@ -1057,22 +1145,99 @@ class GameApp(ShowBase):
         self.prev_fire_pressed = fire_pressed
         self.was_reloading = reloading_now
 
+        # Update debug netgraph overlay
+        if self._netgraph_enabled and self._netgraph is not None:
+            try:
+                ping = 0
+                if self.client and self.client.state and self.client.pid is not None:
+                    me = next((p for p in self.client.state.get("players", []) if p.get("pid") == self.client.pid), None)
+                    ping = int(me.get("ping", 0)) if me else 0
+                snaps = len(self.snapshots)
+                self._netgraph.setText(f"ping: {ping} ms\nsnaps: {snaps}\nrt: {self.render_time:.2f}")
+            except Exception:
+                pass
         return task.cont
 
-def pick_server_via_discovery(lan_port: int):
-    # blocking helper to run discovery once using asyncio
-    loop = asyncio.get_event_loop()
-    servers = loop.run_until_complete(lan_discovery_broadcast(lan_port, timeout=1.0))
-    if not servers:
+def _load_client_state(path: str) -> Dict[str, Any]:
+    try:
+        with open(path, "r") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_client_state(path: str, state: Dict[str, Any]):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump(state, f, indent=2)
+    except Exception as e:
+        print(f"[settings] failed to save client state: {e}")
+
+
+def pick_server(settings: Dict[str, Any], shared_cfg: Dict[str, Any]):
+    net = settings.get("network", {}) if settings else {}
+    srv = net.get("server", {})
+    host = srv.get("host")
+    port = int(srv.get("port", shared_cfg.get("server", {}).get("port", 50007)))
+    disc = net.get("discovery", {})
+    discovery_enabled = bool(disc.get("enabled", True))
+
+    # If host is explicit (not "auto"), use it directly
+    if host and isinstance(host, str) and host != "auto":
+        return host, port
+
+    # If remember_last_server is enabled and we have one saved, use it
+    prefs = settings.get("server_prefs", {}) if settings else {}
+    if bool(prefs.get("remember_last_server", True)):
+        state = _load_client_state(os.path.join("configs", "client_state.json"))
+        last = state.get("last_server")
+        if last and isinstance(last, dict) and last.get("host") and last.get("port"):
+            return last.get("host"), int(last.get("port"))
+
+    if not discovery_enabled:
         return None, None
-    s = servers[0]
-    return s["addr"], s["tcp_port"]
+
+    # Otherwise, discover on LAN with preferences and optional retry
+    lan_port = int(shared_cfg.get("server", {}).get("lan_discovery_port", 50000))
+    preferred = disc.get("preferred_server_names", []) or []
+    retry_ms = int(disc.get("retry_ms", 1000))
+    timeout_s = max(0.2, retry_ms / 1000.0)
+
+    loop = asyncio.get_event_loop()
+    tried = 0
+    while True:
+        servers = loop.run_until_complete(lan_discovery_broadcast(lan_port, timeout=timeout_s))
+        pick = None
+        if servers:
+            # Choose by preference list order first
+            if preferred:
+                for pref in preferred:
+                    for s in servers:
+                        if str(s.get("name", "")) == str(pref):
+                            pick = s
+                            break
+                    if pick is not None:
+                        break
+            # Fallback: first
+            if pick is None:
+                pick = servers[0]
+        if pick is not None:
+            return pick.get("addr"), int(pick.get("tcp_port", port))
+        tried += 1
+        # If auto-join is disabled, stop after first attempt
+        if not bool(prefs.get("auto_join_on_match", True)):
+            break
+        print("[discovery] no servers yet; retrying...")
+        time.sleep(timeout_s)
+    return None, None
 
 
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--config", default="configs/defaults.json")
-    ap.add_argument("--name", default="Player")
+    ap.add_argument("--settings", default="configs/client_settings.json")
+    ap.add_argument("--name", default=None)
     ap.add_argument("--host", default=None, help="Server host; omit to auto-discover on LAN")
     ap.add_argument("--port", type=int, default=None)
     ap.add_argument(
@@ -1089,17 +1254,83 @@ def main():
     )
     args = ap.parse_args()
     cfg = load_config(args.config)
+    settings = load_settings(args.settings)
 
+    # Apply PRC (window, vsync, audio device) before engine init
+    apply_prc_from_settings(settings)
+
+    # Name and team preference
+    prof = settings.get("profile", {}) if settings else {}
+    profile_name = args.name if args.name is not None else prof.get("name", "Player")
+    team_pref = str(prof.get("team_preference", "auto")) if prof else "auto"
+
+    # Choose server
     host, port = args.host, args.port
-    if not host:
-        host, port = pick_server_via_discovery(cfg["server"]["lan_discovery_port"])
+    if host is None or host == "":
+        host2, port2 = pick_server(settings, cfg)
+        host = host2 or host
+        port = port2 or port
         if not host:
-            print("No LAN servers discovered. Provide --host and --port.")
+            print("No server available. Provide --host/--port or enable discovery.")
             sys.exit(1)
     if not port:
         port = cfg["server"]["port"]
 
-    app = GameApp(cfg, host=host, port=port, name=args.name, interp_delay=args.interp_delay, interp_predict=args.interp_predict)
+    # Interp delay: CLI overrides settings; only use settings if CLI default used
+    if args.interp_delay == 0.10:
+        try:
+            args.interp_delay = float(settings.get("network", {}).get("interp_delay", args.interp_delay))
+        except Exception:
+            pass
+
+    app = GameApp(cfg, host=host, port=port, name=profile_name, interp_delay=args.interp_delay, interp_predict=args.interp_predict, settings=settings, team_pref=team_pref)
+
+    # FPS meter and cap
+    try:
+        vid = settings.get("video", {}) if settings else {}
+        if bool(vid.get("show_fps", False)):
+            app.setFrameRateMeter(True)
+        if "max_fps" in vid:
+            fps = float(vid.get("max_fps", 0))
+            if fps and fps > 0:
+                gc = ClockObject.getGlobalClock()
+                gc.setMode(ClockObject.MLimited)
+                gc.setFrameRate(fps)
+    except Exception:
+        pass
+
+    # Apply audio volumes (master/effects/music)
+    try:
+        aud = settings.get("audio", {}) if settings else {}
+        muted = bool(aud.get("muted", False))
+        master = float(aud.get("master", 1.0)) if not muted else 0.0
+        music_v = float(aud.get("music", master)) if not muted else 0.0
+        sfx_v = float(aud.get("effects", master)) if not muted else 0.0
+        try:
+            base.musicManager.setVolume(max(0.0, min(1.0, music_v)))
+        except Exception:
+            pass
+        try:
+            for mgr in getattr(base, "sfxManagerList", []) or []:
+                try:
+                    mgr.setVolume(max(0.0, min(1.0, sfx_v)))
+                except Exception:
+                    pass
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+    # Save last server for convenience
+    try:
+        prefs = settings.get("server_prefs", {}) if settings else {}
+        if bool(prefs.get("remember_last_server", True)) and host and port:
+            state = _load_client_state(os.path.join("configs", "client_state.json"))
+            state["last_server"] = {"host": host, "port": int(port)}
+            _save_client_state(os.path.join("configs", "client_state.json"), state)
+    except Exception:
+        pass
+
     app.run()
 
 

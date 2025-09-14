@@ -1,0 +1,66 @@
+{
+  "profile": {
+    "name": "PlayerOne",
+    "team_preference": "auto",
+    "headgear": { "type": "ballcap", "color": "purple" }
+  },
+
+  "controls": {
+    "mouse_sensitivity": 0.12,
+    "invert_y": false,
+    "fov": 85,
+    "toggle_crouch": false
+  },
+
+  "network": {
+    "server": { "host": "auto", "port": 50007 },
+    "discovery": {
+      "enabled": true,
+      "preferred_server_names": ["Game Night A", "Basement Box"],
+      "retry_ms": 1200
+    },
+    "interp_delay": 0.06
+  },
+
+  "video": {
+    "fullscreen": false,
+    "resolution": [1920, 1080],
+    "vsync": true,
+    "max_fps": 120,
+    "render_distance": 120.0,
+    "show_fps": true,
+    "hud_scale": 1.0
+  },
+
+  "audio": {
+    "master": 0.8,
+    "effects": 1.0,
+    "music": 0.3,
+    "device": "default",
+    "muted": false
+  },
+
+  "cosmetics": {
+    "nameplates": { "enabled": true, "for": "team_only", "max_distance": 45, "fade_start": 30, "scale": 0.55 },
+    "teammate_marker": { "enabled": true, "alpha": 0.9, "max_distance": 70, "fade_start": 40, "scale": 0.6 }
+  },
+
+  "server_prefs": {
+    "auto_join_on_match": true,
+    "remember_last_server": true
+  },
+
+  "hardware": {
+    "gpu_preference": "high_performance",
+    "thread_pool": { "workers": 4 }
+  },
+
+  "debug": {
+    "netgraph": false,
+    "log_level": "info"
+  },
+
+  "privacy": {
+    "send_telemetry": false
+  }
+}

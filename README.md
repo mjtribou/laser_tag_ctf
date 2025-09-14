@@ -41,6 +41,12 @@ Or join manually:
 python client.py --host 192.168.1.50 --port 50007 --name "Mike"
 ```
 
+You can also drive client preferences via a separate settings file (loaded by default at `configs/client_settings.json`):
+```bash
+python client.py --settings configs/client_settings.json
+```
+Supported fields include profile (name/team_preference), controls (mouse_sensitivity/invert_y/fov/toggle_crouch), network discovery preferences, video (fullscreen/resolution/vsync/max_fps/render_distance/show_fps/hud_scale), audio (master/effects/music/device), cosmetics (nameplates/teammate_marker), server_prefs (auto_join_on_match/remember_last_server), debug (netgraph), and privacy flags.
+
 ## Controls (defaults)
 - **WASD** move, **Space** jump (visual), **Ctrl** crouch, **Shift** walk (sneak; no footsteps), **E** interact (pickup/capture)
 - **Mouse** look; **Left click** fire
