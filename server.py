@@ -650,13 +650,61 @@ class LaserTagServer:
         if (ch is None) or (np is None):
             return
 
-        vx, vy = local_move_delta(mx, mz, p.yaw_rad, speed, 1.0)  # m/s
-        ch.setLinearMovement(Vec3(vx, vy, 0.0), False)
-
+        # Determine current grounded state before computing acceleration
         try:
-            on_ground = ch.isOnGround()
+            on_ground = bool(ch.isOnGround())
         except Exception:
             on_ground = False
+
+        # Desired horizontal velocity from input intent (world XY, m/s)
+        vdx, vdy = local_move_delta(mx, mz, p.yaw_rad, speed, 1.0)
+
+        # Current horizontal velocity estimated from last physics sync
+        cur_vx, cur_vy = float(getattr(p, "vx", 0.0) or 0.0), float(getattr(p, "vy", 0.0) or 0.0)
+
+        # Accel/decel limits (ground vs air) in m/s^2
+        gp = self.cfg.get("gameplay", {})
+        accel_ground = float(gp.get("acceleration_mps2", 20.0))
+        accel_air    = float(gp.get("air_acceleration_mps2", max(5.0, 0.5 * accel_ground)))
+        # Slower coasting when no input; faster stop when counter-strafing
+        decel_release_g = float(gp.get("decel_release_mps2", 0.5 * accel_ground))
+        decel_release_a = float(gp.get("air_decel_release_mps2", 0.5 * accel_air))
+        decel_counter_g = float(gp.get("decel_counter_mps2", 1.6 * accel_ground))
+        decel_counter_a = float(gp.get("air_decel_counter_mps2", 1.2 * accel_air))
+
+        # Choose rate depending on input and direction
+        intent_mag = min(1.0, math.hypot(mx, mz))
+        cur_spd = math.hypot(cur_vx, cur_vy)
+        if intent_mag <= 1e-6:
+            amax = decel_release_g if on_ground else decel_release_a
+        else:
+            # dot < 0 => intent roughly opposite to current motion
+            dot = cur_vx * vdx + cur_vy * vdy
+            if cur_spd > 1e-6 and dot < 0.0:
+                amax = decel_counter_g if on_ground else decel_counter_a
+            else:
+                amax = accel_ground if on_ground else accel_air
+        max_dv = max(0.0, amax * max(0.0, dt))
+
+        # Approach desired velocity with limited delta-v this tick
+        dvx, dvy = (vdx - cur_vx), (vdy - cur_vy)
+        dvmag = math.hypot(dvx, dvy)
+        if dvmag > 1e-6 and dvmag > max_dv:
+            scale = max_dv / dvmag
+            dvx *= scale
+            dvy *= scale
+        cmd_vx = cur_vx + dvx
+        cmd_vy = cur_vy + dvy
+
+        # Clamp commanded speed to the intended top speed for this stance
+        cmd_spd = math.hypot(cmd_vx, cmd_vy)
+        max_spd = max(0.0, speed)
+        if cmd_spd > max_spd and cmd_spd > 1e-6:
+            k = max_spd / cmd_spd
+            cmd_vx *= k
+            cmd_vy *= k
+
+        ch.setLinearMovement(Vec3(cmd_vx, cmd_vy, 0.0), False)
         if jump_pressed and on_ground:
             try:
                 ch.doJump()

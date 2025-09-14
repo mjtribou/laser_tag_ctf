@@ -30,8 +30,21 @@ def heading_right_xy(yaw_rad: float) -> tuple[float, float]:
 def local_move_delta(mx: float, mz: float, yaw_rad: float, speed: float, dt: float) -> tuple[float, float]:
     """
     Convert local intent (mx=strafe, mz=forward) to world-space XY delta.
-    mx: A/D  (-1..+1), mz: W/S (+1..-1).
+    - mx: strafe left/right intent in [-1, 1]
+    - mz: forward/back intent in [-1, 1]
+    - speed: top speed (m/s)
+    - dt: time step (s)
+
+    Diagonal-normalized: if sqrt(mx^2 + mz^2) > 1, the (mx, mz) vector is
+    scaled to unit length so diagonal movement does not exceed top speed.
     """
+    # Normalize local intent to length <= 1 to avoid diagonal speed boost
+    mag = math.hypot(mx, mz)
+    if mag > 1.0 and mag > 1e-8:
+        inv = 1.0 / mag
+        mx *= inv
+        mz *= inv
+
     rx, ry = heading_right_xy(yaw_rad)
     fx, fy = heading_forward_xy(yaw_rad)
     dx = (fx * mz + rx * mx) * speed * dt
