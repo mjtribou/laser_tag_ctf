@@ -428,7 +428,7 @@ class LaserTagServer:
         return pos
 
     # ---------- Firing / hitscan ----------
-    def _add_beam(self, team: int, start: Tuple[float,float,float], end: Tuple[float,float,float]):
+    def _add_beam(self, team: int, start: Tuple[float,float,float], end: Tuple[float,float,float], shooter_pid: int = None):
         sx, sy, sz = start
         ex, ey, ez = end
         dx, dy, dz = (ex - sx), (ey - sy), (ez - sz)
@@ -440,6 +440,7 @@ class LaserTagServer:
             "ex": ex, "ey": ey, "ez": ez,
             "len": length,          # <= for client projectile animation
             "t": now(),             # shot start time
+            "owner": shooter_pid,
         })
 
     def _apply_hitscan(self, shooter: "Player", spread_rad: float, fire_time: Optional[float] = None):
@@ -486,7 +487,7 @@ class LaserTagServer:
         Dx, Dy, Dz = (ex - sx), (ey - sy), (ez - sz)
         Dlen2 = Dx*Dx + Dy*Dy + Dz*Dz
         if Dlen2 <= 1e-12:
-            self._add_beam(shooter.team, (sx, sy, sz - 0.05 * ph), (ex, ey, ez))
+            self._add_beam(shooter.team, (sx, sy, sz - 0.05 * ph), (ex, ey, ez), shooter_pid=shooter.pid)
             return None, None, (fx, fy, fz)
 
         # ---- Bullet wall-occlusion: first static block along the ray ----
@@ -561,7 +562,7 @@ class LaserTagServer:
             victim_pid = None
 
         # Always enqueue a beam so the client can draw it
-        self._add_beam(shooter.team, (sx, sy, sz - 0.05 * ph), beam_end)
+        self._add_beam(shooter.team, (sx, sy, sz - 0.05 * ph), beam_end, shooter_pid=shooter.pid)
 
         # Return normalized direction (already nearly unit, but normalize anyway)
         dlen = math.sqrt(fx*fx + fy*fy + fz*fz) or 1.0

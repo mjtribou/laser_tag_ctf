@@ -702,7 +702,8 @@ class GameApp(ShowBase):
 
         # player representations
         self.player_nodes = {}  # pid -> NodePath
-        self.robot_parts = {}   # pid -> dict(base, body, head, shoulder_r, model)
+        self.robot_parts = {}   # pid -> dict(root, model, base, body, head, shoulder_r, blaster)
+        self._local_robot_root = None  # hidden local player model root for anchors
         self._prev_pos = {}     # pid -> (x, y)
         self._last_base_h = {}  # pid -> float last computed base heading
         self.grenade_nodes = {}  # gid -> NodePath
@@ -958,27 +959,43 @@ class GameApp(ShowBase):
             if elapsed <= 0.0:
                 continue
 
-            sx, sy, sz = b["sx"], b["sy"], b["sz"]
             ex, ey, ez = b["ex"], b["ey"], b["ez"]
+            sx_orig, sy_orig, sz_orig = b["sx"], b["sy"], b["sz"]
+            L_orig = float(b.get("len", math.sqrt((ex - sx_orig)**2 + (ey - sy_orig)**2 + (ez - sz_orig)**2)))
+            # Try to replace start with the shooter's Blaster anchor if we can
+            sx, sy, sz = sx_orig, sy_orig, sz_orig
+            owner = b.get("owner")
+            if owner is not None:
+                parts = self.robot_parts.get(owner)
+                if parts is not None:
+                    blaster = parts.get("blaster")
+                    try:
+                        if blaster is not None and not blaster.isEmpty():
+                            pos_w = blaster.getPos(self.render)
+                            sx, sy, sz = float(pos_w.x), float(pos_w.y), float(pos_w.z)
+                    except Exception:
+                        pass
+
             dx, dy, dz = (ex - sx), (ey - sy), (ez - sz)
-            L = float(b.get("len", math.sqrt(dx*dx + dy*dy + dz*dz)))
-            if L <= 1e-6:
+            L_new = math.sqrt(dx*dx + dy*dy + dz*dz)
+            if L_new <= 1e-6:
                 continue
 
-            head = min(L, elapsed * speed)
+            head = min(L_orig, elapsed * speed)
             tail = max(0.0, head - streak_len)
 
             if head <= 0.0:
                 continue
 
             # Segment endpoints for the visible streak
-            ux, uy, uz = (dx / L), (dy / L), (dz / L)
+            ux, uy, uz = (dx / L_new), (dy / L_new), (dz / L_new)
+            head_c = min(head, L_new)
             x0 = sx + ux * tail
             y0 = sy + uy * tail
             z0 = sz + uz * tail
-            x1 = sx + ux * head
-            y1 = sy + uy * head
-            z1 = sz + uz * head
+            x1 = sx + ux * head_c
+            y1 = sy + uy * head_c
+            z1 = sz + uz * head_c
 
             segs = LineSegs()
             segs.setThickness(thickness)
@@ -1307,11 +1324,13 @@ class GameApp(ShowBase):
                             except Exception:
                                 return None
                         parts = {
+                            "root": node,
                             "model": model,
                             "base": _part(model, "Base"),
                             "body": _part(model, "Body"),
                             "head": _part(model, "Head"),
                             "shoulder_r": _part(model, "Shoulder.R"),
+                            "blaster": _part(model, "Blaster"),
                         }
                         self.robot_parts[pid] = parts
                     except Exception as e:
@@ -1413,14 +1432,16 @@ class GameApp(ShowBase):
             me0 = d0.get(my_pid)
             me1 = d1.get(my_pid) if s1 is not s0 else d0.get(my_pid)
             if me0 or me1:
+                # Interpolated position for local player
                 if me0 is None:
-                    cx, cy, cz = me1["x"], me1["y"], me1["z"]
+                    px, py, pz = me1["x"], me1["y"], me1["z"]
                 elif me1 is None:
-                    cx, cy, cz = me0["x"], me0["y"], me0["z"]
+                    px, py, pz = me0["x"], me0["y"], me0["z"]
                 else:
-                    cx = (1 - a) * me0["x"] + a * me1["x"]
-                    cy = (1 - a) * me0["y"] + a * me1["y"]
-                    cz = (1 - a) * me0["z"] + a * me1["z"]
+                    px = (1 - a) * me0["x"] + a * me1["x"]
+                    py = (1 - a) * me0["y"] + a * me1["y"]
+                    pz = (1 - a) * me0["z"] + a * me1["z"]
+                cx, cy, cz = px, py, pz
 
                 # Place camera near head height
                 ph = float(self.cfg.get("gameplay", {}).get("player_height", 2.0))
@@ -1435,6 +1456,59 @@ class GameApp(ShowBase):
                 cx, cy = self._clip_to_obstacles(cx, cy, cz, radius=radius, epsilon=0.02)
 
                 self.camera.setPos(cx, cy, cz)
+
+                # Ensure and update hidden local robot for anchor-based visuals
+                if self.robot_template is not None:
+                    try:
+                        if self._local_robot_root is None:
+                            # Create hidden root and copy model
+                            root = self.render.attachNewNode("local-robot-hidden")
+                            root.hide()
+                            model = self.robot_template.copyTo(root)
+                            # Z-offset like remote players
+                            if self._robot_bounds is not None:
+                                min_v, max_v = self._robot_bounds
+                                czm = 0.5 * (min_v.z + max_v.z)
+                                if abs(czm) > 1e-6:
+                                    model.setZ(-czm)
+                            else:
+                                ph = float(self.cfg.get("gameplay", {}).get("player_height", 2.0))
+                                model.setZ(-0.5 * ph)
+                            # Tint to team
+                            try:
+                                team_local = self.local_team if self.local_team is not None else self.client.team
+                                self._apply_robot_team_tint(model, team_local)
+                            except Exception:
+                                pass
+                            # Cache parts
+                            def _part(np, name):
+                                try:
+                                    p = np.find(f"**/{name}")
+                                    return None if p.isEmpty() else p
+                                except Exception:
+                                    return None
+                            parts = {
+                                "root": root,
+                                "model": model,
+                                "base": _part(model, "Base"),
+                                "body": _part(model, "Body"),
+                                "head": _part(model, "Head"),
+                                "shoulder_r": _part(model, "Shoulder.R"),
+                                "blaster": _part(model, "Blaster"),
+                            }
+                            self.robot_parts[my_pid] = parts
+                            self._local_robot_root = root
+                        # Update pose for hidden robot
+                        parts = self.robot_parts.get(my_pid)
+                        if parts is not None:
+                            root = parts.get("root")
+                            if root is not None:
+                                root.setPos(px, py, pz)
+                                root.setHpr(self.yaw, 0.0, 0.0)
+                                # Animate subparts using snapshots and current view
+                                self._animate_robot_parts(my_pid, parts, self.yaw, self.pitch, 0.0, me0, me1, s0, s1, a, px, py)
+                    except Exception:
+                        pass
 
         # draw recent beams from the current snapshots
         self._render_beams(s0, s1, a)
