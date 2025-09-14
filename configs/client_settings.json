@@ -19,7 +19,7 @@
       "preferred_server_names": ["Game Night A", "Basement Box"],
       "retry_ms": 1200
     },
-    "interp_delay": 0.06
+    "interp_delay": 0.0
   },
 
   "video": {

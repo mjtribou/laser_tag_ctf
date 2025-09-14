@@ -8,6 +8,7 @@ from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f, KeyboardButton, WindowProperties, ClockObject
 from panda3d.core import LColor, MouseButton, LineSegs, TextNode
 from panda3d.core import TextNode, TransparencyAttrib, NodePath, LVecBase4f
+from panda3d.core import MaterialAttrib, ColorScaleAttrib, Material
 from panda3d.core import CompassEffect, BillboardEffect, LColor
 from panda3d.core import GeomNode, GeomVertexReader, GeomVertexWriter, GeomTriangles, GeomVertexFormat
 from panda3d.core import loadPrcFileData
@@ -981,6 +982,60 @@ class GameApp(ShowBase):
             return LColor(r, g, b, a)
         return self._neutral_flag_color
 
+    def _apply_robot_team_tint(self, model_np: NodePath, team: int):
+        """Apply team tint to the robot model's tintable materials only.
+
+        Materials expected in the glTF: MatBodyNeutral, Mat_TeamTint, Mat_WheelRubber, Mat_Emissive.
+        Team tinting:
+          - Mat_TeamTint: multiply with team color via ColorScale
+          - Mat_DarkTeamTint: multiply with team color via ColorScale
+          - Mat_Emissive: set Material emission color to team color
+        """
+        team_color = self._get_flag_color(team)
+        # Traverse geoms and apply per-material rules
+        for np in model_np.findAllMatches("**/+GeomNode"):
+            gnode = np.node()
+            for i in range(gnode.getNumGeoms()):
+                state = gnode.getGeomState(i)
+                try:
+                    ma = state.getAttrib(MaterialAttrib)
+                except Exception:
+                    ma = None
+                if not ma:
+                    continue
+                try:
+                    mat = ma.getMaterial()
+                    mname = mat.getName() if mat is not None else ""
+                except Exception:
+                    mname = ""
+                base_name = mname.split('.')[0] if mname else ""
+                if base_name == "Mat_TeamTint":
+                    new_state = state.addAttrib(ColorScaleAttrib.make(team_color))
+                    gnode.setGeomState(i, new_state)
+                if base_name == "Mat_DarkTeamTint":
+                    new_state = state.addAttrib(ColorScaleAttrib.make(team_color))
+                    gnode.setGeomState(i, new_state)
+                elif base_name == "Mat_Emissive":
+                    # Override emission color on the material
+                    try:
+                        r = float(team_color[0]); g = float(team_color[1]); b = float(team_color[2])
+                    except Exception:
+                        r, g, b = float(team_color.x), float(team_color.y), float(team_color.z)
+                    try:
+                        mat2 = mat.makeCopy() if mat is not None else Material()
+                    except Exception:
+                        mat2 = Material()
+                    try:
+                        mat2.setEmission(LColor(r, g, b, 1.0))
+                    except Exception:
+                        pass
+                    try:
+                        mat2.setName(f"{base_name}_tinted")
+                    except Exception:
+                        pass
+                    new_state = state.setAttrib(MaterialAttrib.make(mat2))
+                    gnode.setGeomState(i, new_state)
+
     def _render_flags(self, s0, s1, alpha):
         # Merge the two snapshots' flags into a dict by team id for interpolation
         f0 = {f.get("team"): f for f in (s0.get("flags", []) if s0 else [])}
@@ -1164,6 +1219,11 @@ class GameApp(ShowBase):
                         else:
                             # Fallback: use configured player height to approximate half-height offset
                             model.setZ(-0.5 * ph)
+                        # Apply team tint to specific materials on the copied model
+                        try:
+                            self._apply_robot_team_tint(model, team)
+                        except Exception as e:
+                            print(f"[players] tinting materials failed: {e}")
                     except Exception as e:
                         print(f"[players] Robot copy failed: {e}. Using box fallback.")
                         model = None
@@ -1177,8 +1237,9 @@ class GameApp(ShowBase):
                     # Center about origin (box.egg is unit cube at +/-0.5, so this keeps origin centered already)
                     box.reparentTo(node)
 
-                # Tint by team (matches previous behavior of coloring the player node)
-                node.setColor(*col)
+                # For the fallback box, tint the whole node so it's readable
+                if model is None:
+                    node.setColor(*col)
 
                 self.player_nodes[pid] = node
 
