@@ -399,6 +399,19 @@ class GameApp(ShowBase):
         # beams root (cleared and rebuilt each frame)
         self.beam_group = self.render.attachNewNode("beams")
 
+        # --- Player/Bot visuals ---
+        # Try to load the robot GLB once (requires panda3d-gltf)
+        self.robot_template = None
+        self._robot_bounds = None  # (min_v, max_v) in template local space
+        try:
+            self.robot_template = self.loader.loadModel("models/robot.glb")
+            b = self.robot_template.getTightBounds()
+            if b is not None:
+                self._robot_bounds = (b[0], b[1])
+        except Exception as e:
+            print(f"[init] Could not load models/robot.glb: {e}. Falling back to box.")
+            self.robot_template = None
+
         # player representations
         self.player_nodes = {}  # pid -> NodePath
         self.grenade_nodes = {}  # gid -> NodePath
@@ -766,14 +779,42 @@ class GameApp(ShowBase):
             # Ensure a node exists
             node = self.player_nodes.get(pid)
             if node is None:
-                node = self.loader.loadModel("models/box.egg")
+                # Create a container so we can drop in the robot model (or fallback box)
+                node = self.render.attachNewNode(f"player-{pid}")
                 pr = float(self.cfg.get("gameplay", {}).get("player_radius", 0.5))
                 ph = float(self.cfg.get("gameplay", {}).get("player_height", 2.0))
-                node.setScale(2.0 * pr, 2.0 * pr, ph)
                 team = (p1 or p0)["team"]
                 col = (1.0, 0.5, 0.1, 1) if team == TEAM_RED else (0.1, 0.5, 1.0, 1)
+
+                if self.robot_template is not None:
+                    try:
+                        model = self.robot_template.copyTo(node)
+                        # No rotation or scaling; just shift Z so the model's center aligns with the node origin.
+                        # With origin at floor center, offset by -half height.
+                        if self._robot_bounds is not None:
+                            min_v, max_v = self._robot_bounds
+                            cz = 0.5 * (min_v.z + max_v.z)
+                            if abs(cz) > 1e-6:
+                                model.setZ(-cz)
+                        else:
+                            # Fallback: use configured player height to approximate half-height offset
+                            model.setZ(-0.5 * ph)
+                    except Exception as e:
+                        print(f"[players] Robot copy failed: {e}. Using box fallback.")
+                        model = None
+                else:
+                    model = None
+
+                if model is None:
+                    # Fallback simple box scaled to radius/height
+                    box = self.loader.loadModel("models/box.egg")
+                    box.setScale(2.0 * pr, 2.0 * pr, ph)
+                    # Center about origin (box.egg is unit cube at +/-0.5, so this keeps origin centered already)
+                    box.reparentTo(node)
+
+                # Tint by team (matches previous behavior of coloring the player node)
                 node.setColor(*col)
-                node.reparentTo(self.render)
+
                 self.player_nodes[pid] = node
 
                 # attach cosmetics (headgear, nameplate, teammate caret)
