@@ -72,9 +72,24 @@ class CosmeticsManager:
         if pid in self.by_pid:
             self.detach(pid)
 
-        root = player_np.attachNewNode(f"cosmetics-{pid}")
-        head_anchor = root.attachNewNode("head_anchor")
-        head_anchor.setZ(self.head_z)
+        # Try to attach to a model-provided anchor named "Hat" if present
+        hat_anchor = None
+        try:
+            hat_anchor = player_np.find("**/Hat")
+            if hat_anchor.isEmpty():
+                hat_anchor = None
+        except Exception:
+            hat_anchor = None
+
+        if hat_anchor is not None:
+            # Parent cosmetics under the model's Hat node so they inherit its transform
+            root = hat_anchor.attachNewNode(f"cosmetics-{pid}")
+            head_anchor = root  # use root as the anchor in this case
+        else:
+            # Fallback: create a simple anchor above the player's origin
+            root = player_np.attachNewNode(f"cosmetics-{pid}")
+            head_anchor = root.attachNewNode("head_anchor")
+            head_anchor.setZ(self.head_z)
 
         # Headgear
         headgear_np = None
