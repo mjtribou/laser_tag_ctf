@@ -12,7 +12,7 @@ from game.constants import (
 )
 from game.map_gen import generate
 from game.server_state import GameState, Player, Flag
-from game.transform import wrap_pi, deg_to_rad, rad_to_deg, forward_vector, local_move_delta
+from game.transform import wrap_pi, deg_to_rad, rad_to_deg, forward_vector, local_move_delta, heading_forward_xy
 from game.bot_ai import SimpleBotBrain
 
 # --- Panda3D / Bullet (headless) ---
@@ -645,7 +645,17 @@ class LaserTagServer:
         node.setRestitution(0.6)
         node.setIntoCollideMask(MASK_SOLID)
         np = self._root.attachNewNode(node)
-        np.setPos(owner.x, owner.y, owner.z + 1.0)
+        # Spawn at eye height and slightly forward to avoid intersecting the player collider.
+        ph = float(self.cfg["gameplay"]["player_height"])  # full height
+        pr = float(self.cfg["gameplay"].get("player_radius", 0.5))
+        eye_z = owner.z + 0.30 * ph
+        # Offset forward in the XY plane (independent of pitch) past player + grenade radius.
+        off_xy = (pr + radius + 0.05)
+        hx, hy = heading_forward_xy(owner.yaw_rad)
+        spawn_x = owner.x + hx * off_xy
+        spawn_y = owner.y + hy * off_xy
+        spawn_z = eye_z
+        np.setPos(spawn_x, spawn_y, spawn_z)
         self.world.attachRigidBody(node)
         fx, fy, fz = forward_vector(owner.yaw_rad, owner.pitch_rad)
         base = float(self.cfg["gameplay"].get("grenade_throw_speed", 15.0))
