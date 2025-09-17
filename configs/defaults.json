@@ -12,7 +12,7 @@
     "friendly_fire": false,
     "bot_fill": true,
     "bot_per_team_target": 5,
-    "bots_target_players": false,
+    "bots_target_players": true,
     "collider_merge": "level"
   },
   "gameplay": {
