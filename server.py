@@ -90,6 +90,9 @@ class LaserTagServer:
         # rolling list of killfeed events sent to clients
         # each item: {"t","attacker","attacker_name","victim","victim_name","cause"}
         self.killfeed = []
+        # rolling list of game message events (e.g., flag pickup/drop/capture)
+        # each item: {"t","event","actor","actor_name"}
+        self.messagefeed = []
 
     # ---------- Physics world ----------
     def _attach_static_box(self, center: Tuple[float, float, float], size: Tuple[float, float, float], tag: str):
@@ -354,6 +357,16 @@ class LaserTagServer:
                     p.carrying_flag = team_flag
                 except Exception:
                     pass
+                # Log message feed: picked up flag
+                try:
+                    self.messagefeed.append({
+                        "t": now(),
+                        "event": "pickup",
+                        "actor": p.pid,
+                        "actor_name": p.name,
+                    })
+                except Exception:
+                    pass
 
     def _carry_flags_update(self):
         for team_flag, fl in self.gs.flags.items():
@@ -402,6 +415,16 @@ class LaserTagServer:
                     fx, fy, fz = self._flag_home_pos(fl)
                     fl.x, fl.y, fl.z = fx, fy, fz
                     print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
+                    # Log message feed: capture
+                    try:
+                        self.messagefeed.append({
+                            "t": now(),
+                            "event": "capture",
+                            "actor": p.pid,
+                            "actor_name": p.name,
+                        })
+                    except Exception:
+                        pass
                 continue
 
             # Legacy two-flag mode fallback
@@ -419,6 +442,16 @@ class LaserTagServer:
                 fx, fy, fz = self._flag_home_pos(fl)
                 fl.x, fl.y, fl.z = fx, fy, fz
                 print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
+                # Log message feed: capture
+                try:
+                    self.messagefeed.append({
+                        "t": now(),
+                        "event": "capture",
+                        "actor": p.pid,
+                        "actor_name": p.name,
+                    })
+                except Exception:
+                    pass
 
     # ---------- Lag-comp history ----------
     def _record_history(self):
@@ -849,6 +882,16 @@ class LaserTagServer:
                     v.carrying_flag = None
                 except Exception:
                     pass
+                # Log message feed: dropped flag
+                try:
+                    self.messagefeed.append({
+                        "t": now(),
+                        "event": "drop",
+                        "actor": victim_pid,
+                        "actor_name": v.name,
+                    })
+                except Exception:
+                    pass
 
         # === NEW: swap KCC -> dynamic rigid body "corpse" ===
         # Remove character controller from world to avoid double-collision
@@ -1091,6 +1134,9 @@ class LaserTagServer:
         kmax = int(hud_cfg.get("killfeed_max", 6))
         feed = [e for e in self.killfeed if (now_t - float(e.get("t", 0.0))) <= ttl]
         feed = feed[-kmax:]  # last N within TTL
+        # message feed (flag events etc.)
+        messages = [m for m in self.messagefeed if (now_t - float(m.get("t", 0.0))) <= ttl]
+        messages = messages[-kmax:]
 
         return {
             "type": "state",
@@ -1104,7 +1150,8 @@ class LaserTagServer:
             "match_over": self.gs.match_over,
             "winner": self.gs.winner,
             "beams": self.recent_beams,
-            "killfeed": feed,   # NEW
+            "killfeed": feed,
+            "messages": messages,
         }
 
     # ---------- Networking ----------
@@ -1249,8 +1296,8 @@ class LaserTagServer:
             for pid, p in self.gs.players.items():
                 if not p.alive:
                     continue
-                if bool(self.inputs.get(pid, {}).get("interact", False)):
-                    self._pickup_try(p)
+                # Auto-pickup/return flags when close; no keypress required
+                self._pickup_try(p)
 
             # Respawns
             for pid, p in list(self.gs.players.items()):

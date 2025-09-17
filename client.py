@@ -8,6 +8,59 @@ from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f, KeyboardButton, WindowProperties, ClockObject
 from panda3d.core import LColor, MouseButton, LineSegs, TextNode
 from panda3d.core import TextNode, TransparencyAttrib, NodePath, LVecBase4f
+from panda3d.core import TextProperties, TextPropertiesManager
+
+
+class HudFeed:
+    def __init__(self, x: float, y_start: float, align, scale: float, max_items: int, ttl: float):
+        self.x = x
+        self.y_start = y_start
+        self.align = align
+        self.scale = float(scale)
+        self.max_items = int(max_items)
+        self.ttl = float(ttl)
+        self._nodes = []  # list[(OnscreenText, created_time)]
+
+    def _compose_markup(self, parts):
+        # parts: list of (text, team_or_None)
+        out = []
+        for txt, team in parts:
+            if team == TEAM_RED:
+                out.append("\x01tr\x01" + str(txt) + "\x02")
+            elif team == TEAM_BLUE:
+                out.append("\x01tb\x01" + str(txt) + "\x02")
+            else:
+                out.append(str(txt))
+        return "".join(out)
+
+    def add_parts(self, parts):
+        node = OnscreenText(
+            text=self._compose_markup(parts), pos=(self.x, self.y_start),
+            fg=(1,1,1,1), scale=self.scale, align=self.align, mayChange=True
+        )
+        self._nodes.insert(0, (node, time.time()))
+        while len(self._nodes) > self.max_items:
+            old, _t = self._nodes.pop()
+            old.removeNode()
+        self._layout()
+
+    def _layout(self):
+        y = self.y_start
+        line = self.scale * 1.6
+        for node, _t in self._nodes:
+            node.setPos(self.x, y)
+            y -= line
+
+    def prune(self, now_t: float):
+        changed = False
+        for i in range(len(self._nodes) - 1, -1, -1):
+            node, t0 = self._nodes[i]
+            if (now_t - t0) >= self.ttl:
+                node.removeNode()
+                self._nodes.pop(i)
+                changed = True
+        if changed and self._nodes:
+            self._layout()
 from panda3d.core import MaterialAttrib, ColorScaleAttrib, Material
 from panda3d.core import CompassEffect, BillboardEffect, LColor
 from panda3d.core import GeomNode, GeomVertexReader, GeomVertexWriter, GeomTriangles, GeomVertexFormat
@@ -749,14 +802,55 @@ class GameApp(ShowBase):
         self._netgraph = None
         if self._netgraph_enabled:
             self._netgraph = OnscreenText(text="", pos=(-1.3, 0.95), fg=(0.8, 1.0, 0.8, 1), align=TextNode.ALeft, scale=0.04, mayChange=True)
-        # --- Killfeed HUD state ---
+        # --- Killfeed/Message HUD state ---
         hud_cfg = self.cfg.get("hud", {})
         self._kill_ttl   = float(hud_cfg.get("killfeed_ttl", 4.0))
         self._kill_max   = int(hud_cfg.get("killfeed_max", 6))
         self._kill_scale = float(hud_cfg.get("killfeed_font_scale", 0.045))
 
         self._kill_seen = set()            # (t_ms, attacker_pid, victim_pid)
-        self._kill_nodes = []              # list[(OnscreenText, created_time)]
+        # Message feed (top-left) — similar policy to killfeed
+        self._msg_ttl   = float(hud_cfg.get("messagefeed_ttl", self._kill_ttl))
+        self._msg_max   = int(hud_cfg.get("messagefeed_max", self._kill_max))
+        self._msg_scale = float(hud_cfg.get("messagefeed_font_scale", self._kill_scale))
+        self._msg_seen = set()             # (t_ms, actor_pid, event)
+
+        # Text styling: define properties for team-colored inline segments
+        try:
+            tpm = TextPropertiesManager.getGlobalPtr()
+            colors = self.cfg.get("colors", {})
+            col_r = colors.get("team_red", (1.0, 0.25, 0.25, 1.0))
+            col_b = colors.get("team_blue", (0.25, 0.5, 1.0, 1.0))
+            tp_r = TextProperties(); tp_r.setTextColor(*col_r)
+            tp_b = TextProperties(); tp_b.setTextColor(*col_b)
+            tpm.setProperties("tr", tp_r)
+            tpm.setProperties("tb", tp_b)
+        except Exception:
+            pass
+
+        # Initialize feeds using a shared component
+        self.kill_feed = HudFeed(x=0.95, y_start=0.92, align=TextNode.ARight,
+                                 scale=self._kill_scale, max_items=self._kill_max, ttl=self._kill_ttl)
+        self.msg_feed  = HudFeed(x=-1.25, y_start=0.92, align=TextNode.ALeft,
+                                 scale=self._msg_scale, max_items=self._msg_max, ttl=self._msg_ttl)
+        # Message feed (top-left) — similar policy to killfeed
+        self._msg_ttl   = float(hud_cfg.get("messagefeed_ttl", self._kill_ttl))
+        self._msg_max   = int(hud_cfg.get("messagefeed_max", self._kill_max))
+        self._msg_scale = float(hud_cfg.get("messagefeed_font_scale", self._kill_scale))
+        self._msg_seen = set()             # (t_ms, actor_pid, event)
+
+        # Text styling: define properties for team-colored inline segments
+        try:
+            tpm = TextPropertiesManager.getGlobalPtr()
+            colors = self.cfg.get("colors", {})
+            col_r = colors.get("team_red", (1.0, 0.25, 0.25, 1.0))
+            col_b = colors.get("team_blue", (0.25, 0.5, 1.0, 1.0))
+            tp_r = TextProperties(); tp_r.setTextColor(*col_r)
+            tp_b = TextProperties(); tp_b.setTextColor(*col_b)
+            tpm.setProperties("tr", tp_r)
+            tpm.setProperties("tb", tp_b)
+        except Exception:
+            pass
         gp_cfg = self.cfg.get("gameplay", {})
         self.shots_per_mag = int(gp_cfg.get("shots_per_mag", 20))
         self.reload_seconds = float(gp_cfg.get("reload_seconds", 1.5))
@@ -1213,25 +1307,7 @@ class GameApp(ShowBase):
 
     # --- Per-frame update -------------------------------------------------
 
-    def _layout_killfeed(self):
-        y = 0.92
-        line = self._kill_scale * 1.6
-        for node, _t in self._kill_nodes:
-            node.setPos(0.95, y)  # top-right-ish; using right alignment below
-            y -= line
-
-    def _add_killfeed_item(self, text: str, color=(1,1,1,1)):
-        node = OnscreenText(
-            text=text, pos=(0.95, 0.92),  # will be re-laid
-            fg=color, scale=self._kill_scale, align=TextNode.ARight, mayChange=True
-        )
-        # newest first
-        self._kill_nodes.insert(0, (node, time.time()))
-        # trim overflow
-        while len(self._kill_nodes) > self._kill_max:
-            old, _t = self._kill_nodes.pop()
-            old.removeNode()
-        self._layout_killfeed()
+    # legacy helpers replaced by HudFeed
 
     def update_task(self, task):
         # advance smoothed render_time toward latest snapshot time
@@ -1522,6 +1598,8 @@ class GameApp(ShowBase):
         # --- Killfeed ingest & prune ---
         latest = s1 or s0
         if latest:
+            # map pid -> team for coloring names
+            pid_team = {p.get("pid"): p.get("team") for p in latest.get("players", [])}
             feed = latest.get("killfeed", [])
             for ev in feed:
                 key = (int(float(ev.get("t", 0.0)) * 1000), ev.get("attacker"), ev.get("victim"))
@@ -1529,21 +1607,44 @@ class GameApp(ShowBase):
                     continue
                 self._kill_seen.add(key)
                 cause = ev.get('cause')
+                att = ev.get('attacker_name','?')
+                vic = ev.get('victim_name','?')
+                att_t = pid_team.get(ev.get('attacker'))
+                vic_t = pid_team.get(ev.get('victim'))
                 if cause == 'grenade':
-                    msg = f"{ev.get('attacker_name','?')} [grenade] {ev.get('victim_name','?')}"
+                    parts = [(att, att_t), " [grenade] ", (vic, vic_t)]
                 else:
-                    msg = f"{ev.get('attacker_name','?')} eliminated {ev.get('victim_name','?')}"
-                self._add_killfeed_item(msg)
+                    parts = [(att, att_t), " eliminated ", (vic, vic_t)]
+                # normalize to (text, team) tuples and add
+                norm = [(p, None) if isinstance(p, str) else p for p in parts]
+                self.kill_feed.add_parts(norm)
+
+            # Message feed
+            msgs = latest.get("messages", [])
+            for ev in msgs:
+                key = (int(float(ev.get("t", 0.0)) * 1000), ev.get("actor"), ev.get("event"))
+                if key in self._msg_seen:
+                    continue
+                self._msg_seen.add(key)
+                name = ev.get('actor_name', '?')
+                team = pid_team.get(ev.get('actor'))
+                evt = ev.get('event')
+                if evt == 'pickup':
+                    parts = [(name, team), " picked up the flag"]
+                elif evt == 'drop':
+                    parts = [(name, team), " dropped the flag"]
+                elif evt == 'capture':
+                    parts = [(name, team), " captured the flag!"]
+                else:
+                    parts = [(name, team), f" {evt}"]
+                norm = [(p, None) if isinstance(p, str) else p for p in parts]
+                self.msg_feed.add_parts(norm)
 
         # expire old killfeed entries (no fade, simple TTL)
         nowt = time.time()
-        for i in range(len(self._kill_nodes) - 1, -1, -1):
-            node, t0 = self._kill_nodes[i]
-            if (nowt - t0) >= self._kill_ttl:
-                node.removeNode()
-                self._kill_nodes.pop(i)
-        if self._kill_nodes:
-            self._layout_killfeed()
+        # Prune feeds
+        self.kill_feed.prune(nowt)
+        self.msg_feed.prune(nowt)
 
         if latest and my_pid is not None:
             me_latest = next((p for p in latest.get("players", [] ) if p["pid"] == my_pid), None)

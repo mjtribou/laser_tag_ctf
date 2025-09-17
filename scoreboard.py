@@ -57,7 +57,9 @@ class Scoreboard:
         y -= line
         for team in (TEAM_RED, TEAM_BLUE):
             tname = "RED" if team == TEAM_RED else "BLUE"
-            points = teams.get(team, {}).get("captures", 0)
+            # some JSON decoders may coerce int keys to strings; handle both
+            tkey = team if team in teams else str(team)
+            points = teams.get(tkey, {}).get("captures", 0)
             team_line = OnscreenText(
                 f"{tname} - {points}",
                 pos=(base_x, y),
