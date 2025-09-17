@@ -113,17 +113,45 @@ class LaserTagServer:
         # Floor slab (top at z=0). Make it thick to be safe.
         self._attach_static_box((0.0, 0.0, -2.5), (size_x, size_z, 5.0), "floor")
 
-        # Procedural blocks → static boxes
+        # Procedural blocks → merged static boxes
         count_blocks = 0
-        for i, b in enumerate(self.mapdata.blocks):
-            cx, cy, cz = b.pos
-            sx, sy, sz = b.size
-            self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"block_{i}")
-            count_blocks += 1
         try:
-            print(f"[server] static world: {count_blocks} block colliders attached")
+            from game.collider_merge import build_merged_colliders
+            merge_mode = str(self.cfg.get("server", {}).get("collider_merge", "stack"))
         except Exception:
-            pass
+            build_merged_colliders = None  # type: ignore
+            merge_mode = "none"
+
+        colliders = None
+        if build_merged_colliders is not None and merge_mode.lower() != "none":
+            try:
+                strategy = "level" if merge_mode.lower().startswith("level") else "stack"
+                colliders = build_merged_colliders(self.mapdata, strategy=strategy)
+            except Exception as e:
+                print(f"[server] collider merge failed ({e}); falling back to per-cube")
+                colliders = None
+
+        if colliders is None:
+            # Fallback: one collider per cube
+            for i, b in enumerate(self.mapdata.blocks):
+                cx, cy, cz = b.pos
+                sx, sy, sz = b.size
+                self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"block_{i}")
+                count_blocks += 1
+            try:
+                print(f"[server] static world: {count_blocks} block colliders attached (unmerged)")
+            except Exception:
+                pass
+        else:
+            for i, b in enumerate(colliders):
+                cx, cy, cz = b.pos
+                sx, sy, sz = b.size
+                self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"blkM_{i}")
+                count_blocks += 1
+            try:
+                print(f"[server] static world: {count_blocks} merged colliders attached (mode={merge_mode})")
+            except Exception:
+                pass
 
         # Arena walls (thin boxes)
         wall_t = 0.5
@@ -147,7 +175,8 @@ class LaserTagServer:
         # Box half-extents: X/Y from radius, Z from half height
         half = Vec3(radius, radius, height * 0.5)
         shape = BulletBoxShape(half)
-        step_height = 0.4
+        # Step height helps climbing small ledges; make configurable
+        step_height = float(self.cfg.get("gameplay", {}).get("step_height", 0.4))
 
         ch = BulletCharacterControllerNode(shape, step_height, f"char_{pid}")
         ch.setGravity(float(self.cfg["gameplay"]["gravity"]))

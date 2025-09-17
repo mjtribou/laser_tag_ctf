@@ -12,7 +12,8 @@
     "friendly_fire": false,
     "bot_fill": true,
     "bot_per_team_target": 5,
-    "bots_target_players": false
+    "bots_target_players": false,
+    "collider_merge": "level"
   },
   "gameplay": {
     "run_speed": 7.0,
