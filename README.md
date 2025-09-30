@@ -1,85 +1,102 @@
-# Laser Tag CTF (Panda3D + Bullet, Authoritative Server)
+# Laser Tag CTF
 
-> First playable LAN prototype for 5v5 Capture‑the‑Flag laser tag with hitscan shots, recoil/spread, crouch accuracy, bots, and UDP LAN discovery.  
-> **Server‑authoritative 60 Hz** simulation, **20 Hz** snapshots to clients, JSON‑over‑TCP protocol.
+Authoritative, server-driven capture-the-flag arena built on Panda3D + Bullet. Supports LAN play, bot fill, and a lightweight ECS architecture for deterministic gameplay.
 
-## Features implemented (MVP)
-- Panda3D renderer, Bullet world scaffold
-- Authoritative server (`server.py`) runs game loop, flags (pickup/drop/auto‑return), captures (win at 3), 3s respawn
-- Default game mode: single center‑flag CTF (neutral flag spawns at arena center; either team can capture by returning it to their base)
-- Hitscan lasers with server‑side validation, recoil accumulation, accuracy penalties while moving; crouch improves accuracy
-- Basic 5v5 via **bot fill** (dumb patrol/engage behavior) + human players
-- Symmetric **procedural block arena** (~80×50m) with team‑colored base beacons
-- **LAN discovery** via UDP broadcast (port 50000); clients can also join by IP
-- UI: crosshair + team‑colored players; Tab scoreboard and richer HUD are stubs for v2
-- Configurable **mouse sensitivity**, **volume/mute**, **keymap**, and rule constants via `configs/defaults.json`
-- **No footsteps while walking/sneaking** logic is scaffolded (audio hooks to be added).
+## Highlights
+- **Authoritative server loop** at 60 Hz with JSON-over-TCP clients and UDP LAN discovery.
+- **Entity-component systems** (`game/ecs`) drive player input, movement, combat, collisions, and flag state; legacy views expose the same API to existing client/bot code.
+- **Hitscan combat** with Bullet ray occlusion, recoil/spread tuning, killfeed, ragdoll corpses, and beam replication.
+- **Procedural arena** generation (merged colliders, optional bunkers) with single neutral-flag CTF by default; supports classic two-flag when stands are present.
+- **Bot fill and HUD**: A* navigation bots keep lobbies full, live scoreboard (Tab) shows team captures, ping, tags, outs, captures, defences.
+- **Config driven**: tweak gameplay, physics, visuals, controls, audio, and server limits through `configs/defaults.json` (server) and `configs/client_settings.json` (client).
 
-## Install
+## Getting Started
+### Requirements
+- Python 3.10+
+- Panda3D, Bullet, and dependencies listed in `requirements.txt`
+
+### Install
 ```bash
 python -m venv venv
-source venv/bin/activate   # Windows: venv\Scripts\activate
+source venv/bin/activate      # Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
+If Panda3D wheels fail, install system prerequisites for your OS (see Panda3D documentation).
 
-> If Panda3D wheels fail, install system prerequisites per your OS. Windows/MSVC and Linux manylinux wheels are published on PyPI.
-
-## Run
-### 1) Start the server
+### Run the server
 ```bash
 python server.py --config configs/defaults.json
 ```
-- Default TCP port: **50007**
-- LAN discovery UDP port: **50000**
-- Server automatically fills with bots up to 5v5 (configurable).
+- Defaults: TCP `50007`, LAN discovery UDP `50000`
+- Server auto-fills teams to 5v5 using bots (see `server.bot_fill`, `bot_per_team_target`).
 
-### 2) Start a client (auto‑discover LAN server)
+### Run a client
 ```bash
-python client.py --name "Mike"
+python client.py --name "Player"
 ```
-Or join manually:
+To join a specific host:
 ```bash
-python client.py --host 192.168.1.50 --port 50007 --name "Mike"
+python client.py --host 192.168.1.50 --port 50007 --name "Player"
 ```
+Additional preferences (FOV, HUD scale, audio, keybinds, etc.) can be set in `configs/client_settings.json`. The client will remember the last server in `configs/client_state.json`.
 
-You can also drive client preferences via a separate settings file (loaded by default at `configs/client_settings.json`):
-```bash
-python client.py --settings configs/client_settings.json
-```
-Supported fields include profile (name/team_preference), controls (mouse_sensitivity/invert_y/fov/toggle_crouch), network discovery preferences, video (fullscreen/resolution/vsync/max_fps/render_distance/show_fps/hud_scale), audio (master/effects/music/device), cosmetics (nameplates/teammate_marker), server_prefs (auto_join_on_match/remember_last_server), debug (netgraph), and privacy flags.
+## Controls (default)
+- `WASD` move, `Space` jump, `Ctrl` crouch, `Shift` walk, `E` interact
+- `Mouse` to aim, `LMB` fire, hold for continuous shots
+- `Tab` toggles the scoreboard, `M` mute
 
-## Controls (defaults)
-- **WASD** move, **Space** jump (visual), **Ctrl** crouch, **Shift** walk (sneak; no footsteps), **E** interact (pickup/capture)
-- **Mouse** look; **Left click** fire
-- **Tab** scoreboard (stub)
+Bindings and sensitivity are editable under `controls.keymap` in the server or client config.
 
-All keybinds & mouse sensitivity are in `configs/defaults.json` → `"controls"`.
+## Configuration Overview
+Key sections in `configs/defaults.json`:
+- `server`: ports, tick/snapshot rates, bot behaviour, victory conditions
+- `gameplay`: movement speeds, acceleration, spread/recoil, grenade tuning, respawn timers
+- `cubes`/`bunkers`: procedural arena parameters and symmetry
+- `colors`, `hud`, `audio`, `cosmetics`: team tinting, killfeed TTL, footsteps, nameplates
+- `ragdoll`, `laser_visual`: tweak knockback, beam rendering
 
-## Notes & roadmap
-- MVP uses simplified collision & occlusion; **server hit‑tests players only** (no wall occlusion yet). We’ll add Bullet ray tests vs static colliders next.
-- Client‑side prediction is minimal (camera reconciliation). For v2: interpolate remote players, predict local movement + server reconciliation.
-- Audio hooks exist in config; next iteration will add SFX (tag, flag events) via Panda3D audio.
-- Scoreboard/HUD, team markers, FOV recoil kick, and colorblind palettes are partially implemented; polishing next.
+Clients mirror many of these options in `configs/client_settings.json` (video, audio, HUD, cosmetics, discovery preferences).
 
-## Project layout
+## Architecture Notes
+- `server.py` bootstraps Panda3D/Bullet, constructs the ECS world, spawns flags & players as entities, and runs pre/post physics systems each frame.
+- `game/ecs/` contains component definitions, the minimal ECS world, movement/combat/collision systems, snapshot serialization, and view facades for legacy code.
+- `common/net.py` handles LAN discovery (UDP broadcast) and TCP JSON streams.
+- `game/map_gen.py`, `game/bunkers.py`, and `game/collider_merge.py` generate the playable arena.
+- `game/bot_ai.py` supplies Simple and A* brains; the server updates them at 10 Hz and feeds decisions into `PlayerInput` components.
+- `client.py` renders the arena, handles input, interpolation, HUD (including `scoreboard.py`), and applies server snapshots.
+
+## Project Layout
 ```
 laser_tag_ctf/
-  client.py            # Panda3D client + input/HUD + LAN discovery
-  server.py            # Authoritative server, bots, flags, CTF logic
-  common/net.py        # JSON-over-TCP & UDP LAN discovery helpers
+  client.py              # Panda3D client, input/HUD, networking
+  server.py              # Authoritative server, ECS systems, bots, flags
+  scoreboard.py          # Tab scoreboard overlay used by client
+  common/net.py          # TCP JSON protocol + LAN discovery support
+  configs/               # Server & client configuration presets/state
   game/
-    constants.py
-    map_gen.py
-    server_state.py    # shared math helpers & state structs
-    bot_ai.py
-  configs/defaults.json
+    ecs/                 # ECS components, systems, replication helpers
+    bot_ai.py            # Simple & A* bot brains
+    map_gen.py           # Procedural arena + collider merging
+    constants.py         # Shared gameplay constants/enums
+    transform.py         # Math helpers (angles, movement deltas)
+    nav_grid.py          # Grid-building & pathfinding helpers for bots
+  tools/                 # Development scripts/utilities
   requirements.txt
   README.md
 ```
 
-## Known limitations (to be addressed)
-- No wall occlusion for hitscan yet (the server uses sphere hit on players only).
-- Physics: player movement uses simple integration; Bullet character controller to be added for capsule vs static boxes.
-- Bots: simple waypointing/steering; planned grid A* and better targeting/flag logic.
-- UI/HUD: full scoreboard, flag icons, teammate markers pending.
-- Colorblind palette: currently **Blue vs Orange**; further palette tweaks and UI shapes planned.
+## Feature Status & Roadmap
+- ✅ Bullet occlusion for hitscan, recoil decay, ragdoll knockback, grenade AoE tags
+- ✅ ECS-driven movement/combat/collision; snapshots sourced directly from components
+- ✅ Live scoreboard, killfeed, message feed in client HUD
+- 🚧 Client-side prediction is limited (camera only)—full reconciliation still on the roadmap
+- 🚧 Authentication/persistence is absent; server trusts LAN clients
+- 🚧 Audio set includes placeholders; richer SFX/music still planned
+- 🚧 Additional game modes (multi-flag, king-of-the-hill) can be layered by adding systems/components
+
+## Troubleshooting
+- **No server found via LAN**: ensure UDP broadcast is allowed on port 50000 or join via `--host`.
+- **Physics jitter**: verify `tick_hz` and `snapshot_hz` align with client frame timing; reducing beam/fuse speeds can help on low-end hardware.
+- **Panda3D import errors**: reinstall Panda3D with `pip install panda3d` after activating the virtualenv, or install platform-specific prerequisites.
+
+Happy tagging!
