@@ -315,20 +315,97 @@ def mapdata_from_dict(data: Dict[str, Any]) -> MapData:
                     cubes.append(((cx, cy, cz), key))
         return cubes
 
+    def _normalize_box_type(value: Any, path: str) -> int:
+        try:
+            return int(value)
+        except Exception as exc:
+            raise ValueError(f"{path}.box_type must be an integer") from exc
+
+    def _resolve_box_type(node: Dict[str, Any], path: str, inherited: Optional[int]) -> int:
+        if "box_type" in node:
+            return _normalize_box_type(node["box_type"], path)
+        if inherited is not None:
+            return inherited
+        return 0
+
+    VoxelMap = Dict[Tuple[int, int, int], Tuple[Tuple[float, float, float], int]]
+
+    def _combine_union(children: List[VoxelMap]) -> VoxelMap:
+        combined: VoxelMap = {}
+        for child in children:
+            for key, value in child.items():
+                if key not in combined:
+                    combined[key] = value
+        return combined
+
+    def _combine_intersection(children: List[VoxelMap]) -> VoxelMap:
+        if not children:
+            return {}
+        intersect: VoxelMap = dict(children[0])
+        for child in children[1:]:
+            keys = set(intersect.keys()) & set(child.keys())
+            intersect = {k: intersect[k] for k in keys}
+        return intersect
+
+    def _combine_subtraction(children: List[VoxelMap]) -> VoxelMap:
+        if not children:
+            return {}
+        base: VoxelMap = dict(children[0])
+        for child in children[1:]:
+            for key in child.keys():
+                base.pop(key, None)
+        return base
+
+    def _parse_voxel_node(node: Any, path: str, inherited_box_type: Optional[int]) -> VoxelMap:
+        if not isinstance(node, dict):
+            raise ValueError(f"{path} must be an object")
+
+        node_box_type = _resolve_box_type(node, path, inherited_box_type)
+
+        if "pos" in node or "size" in node:
+            pos = _to_tuple(node.get("pos"), 3, f"{path}.pos")
+            size_default = (cube_size, cube_size, cube_size)
+            size = _to_tuple(node.get("size"), 3, f"{path}.size", size_default)
+            voxels: VoxelMap = {}
+            for cube_pos, key in _expand_to_cubes(pos, size, cube_size):
+                voxels[key] = (cube_pos, node_box_type)
+            return voxels
+
+        op_val = node.get("op") or node.get("operation") or node.get("type")
+        if not isinstance(op_val, str):
+            raise ValueError(f"{path} must define 'pos'/'size' or 'op'")
+        op = op_val.lower()
+
+        if "children" in node:
+            child_key = "children"
+        elif "shapes" in node:
+            child_key = "shapes"
+        else:
+            raise ValueError(f"{path} must provide a 'children' or 'shapes' list for op '{op}'")
+
+        children_raw = node.get(child_key)
+        if not isinstance(children_raw, list) or not children_raw:
+            raise ValueError(f"{path}.{child_key} must be a non-empty list")
+
+        child_voxels = [
+            _parse_voxel_node(child, f"{path}.{child_key}[{idx}]", node_box_type)
+            for idx, child in enumerate(children_raw)
+        ]
+
+        if op in ("union", "add", "merge"):
+            return _combine_union(child_voxels)
+        if op in ("intersect", "intersection", "and"):
+            return _combine_intersection(child_voxels)
+        if op in ("subtract", "difference", "minus", "without"):
+            return _combine_subtraction(child_voxels)
+
+        raise ValueError(f"{path}.op '{op}' is not supported; expected union/intersect/subtract")
+
     blocks: Dict[Tuple[int, int, int], Block] = {}
 
-    for idx, b in enumerate(blocks_data):
-        if not isinstance(b, dict):
-            raise ValueError(f"Block #{idx} must be an object")
-        pos = _to_tuple(b.get("pos"), 3, f"blocks[{idx}].pos")
-        size_default = (cube_size, cube_size, cube_size)
-        size = _to_tuple(b.get("size"), 3, f"blocks[{idx}].size", size_default)
-        try:
-            box_type = int(b.get("box_type", 0))
-        except Exception as exc:
-            raise ValueError(f"blocks[{idx}].box_type must be an integer") from exc
-
-        for cube_pos, key in _expand_to_cubes(pos, size, cube_size):
+    for idx, node in enumerate(blocks_data):
+        voxels = _parse_voxel_node(node, f"blocks[{idx}]", None)
+        for key, (cube_pos, box_type) in voxels.items():
             if key not in blocks:
                 blocks[key] = Block(pos=cube_pos, size=(cube_size, cube_size, cube_size), box_type=box_type)
 

@@ -54,6 +54,23 @@ Key sections in `configs/defaults.json`:
 - `cubes`/`bunkers`: procedural arena parameters and symmetry
 - `colors`, `hud`, `audio`, `cosmetics`: team tinting, killfeed TTL, footsteps, nameplates
 - `ragdoll`, `laser_visual`: tweak knockback, beam rendering
+- `maps`: arena layout files under `configs/maps/`
+
+### Map authoring
+Map JSON files now support constructive solid geometry style operations alongside simple axis-aligned blocks. Each entry inside `blocks` can be either a classic block with `pos`, `size`, and `box_type`, or an operation node with an `op` and nested `children`/`shapes`. Supported operations are `union`, `intersect`, and `subtract` (aliases: `add`, `merge`, `difference`, `minus`, `and`). Operations inherit the parent `box_type` by default, but any node can override it.
+
+Example snippet:
+```json
+{
+  "op": "subtract",
+  "box_type": 2,
+  "children": [
+    { "pos": [0, 0, 1], "size": [20, 12, 2] },
+    { "pos": [0, 0, 1], "size": [6, 6, 2] }
+  ]
+}
+```
+The above carves a square hole out of a larger platform while keeping the result voxel-aligned to `cube_size`.
 
 Clients mirror many of these options in `configs/client_settings.json` (video, audio, HUD, cosmetics, discovery preferences).
 

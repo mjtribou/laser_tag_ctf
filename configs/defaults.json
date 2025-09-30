@@ -50,7 +50,7 @@
     "reload_seconds": 1.5
   },
   "map": {
-    "file": "configs/maps/arena_demo.json"
+    "file": "configs/maps/csg_showcase.json"
   },
   "cubes": {
     "size": 1.0,
