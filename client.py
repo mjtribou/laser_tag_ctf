@@ -69,7 +69,7 @@ from panda3d.core import loadPrcFileData
 from common.net import send_json, read_json, lan_discovery_broadcast
 from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL
 from scoreboard import Scoreboard
-from game.map_gen import generate
+from game.map_gen import load_from_file as load_map_from_file
 
 # ========== Cosmetics Manager ==========
 class CosmeticsManager:
@@ -511,9 +511,20 @@ class GameApp(ShowBase):
         # (Bullet not yet used here; scaffold kept for future)
         # self.world = BulletWorld(); self.world.setGravity(Vec3(0,0,-9.81))
 
-        # arena
-        size_x, size_y = cfg["gameplay"]["arena_size_m"]
-        self.mapdata = generate(seed=42, size_x=size_x, size_z=size_y, cubes=cfg.get("cubes", {}))
+        # arena must come from a map file
+        map_cfg = dict(cfg.get("map", {}))
+        map_file = map_cfg.get("file")
+        if not isinstance(map_file, str) or not map_file:
+            raise ValueError("Configuration must provide 'map.file' with a valid JSON map path")
+
+        try:
+            self.mapdata = load_map_from_file(map_file)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load map file '{map_file}': {e}") from e
+
+        size_x, size_y = self.mapdata.bounds
+        cfg["gameplay"]["arena_size_m"] = [size_x, size_y]
+        print(f"[map] Loaded '{map_file}' ({size_x:.1f}×{size_y:.1f} m)")
 
         # floor plane (visual only)
         cm = self.render.attachNewNode("floor")

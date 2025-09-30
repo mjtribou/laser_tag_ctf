@@ -1,0 +1,48 @@
+{
+  "version": 1,
+  "bounds": [80, 60],
+  "cube_size": 1,
+  "agent_radius": 0.5,
+  "red_base": [-30, 0, 0],
+  "blue_base": [30, 0, 0],
+  "red_flag_stand": [-28, 0, 0],
+  "blue_flag_stand": [28, 0, 0],
+  "neutral_flag_stand": [0, 0, 0],
+  "blocks": [
+    {
+      "pos": [-25, 0, 1],
+      "size": [8, 20, 2],
+      "box_type": 1
+    },
+    {
+      "pos": [25, 0, 1],
+      "size": [8, 20, 2],
+      "box_type": 1
+    },
+    {
+      "pos": [0, 0, 1.5],
+      "size": [6, 6, 3],
+      "box_type": 2
+    },
+    {
+      "pos": [0, -15, 1],
+      "size": [20, 4, 2],
+      "box_type": 0
+    },
+    {
+      "pos": [0, 15, 1],
+      "size": [20, 4, 2],
+      "box_type": 0
+    },
+    {
+      "pos": [-25, 0, 4.5],
+      "size": [3, 3, 5],
+      "box_type": 3
+    },
+    {
+      "pos": [25, 0, 4.5],
+      "size": [3, 3, 5],
+      "box_type": 3
+    }
+  ]
+}

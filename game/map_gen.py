@@ -1,6 +1,6 @@
 # game/map_gen.py
 from dataclasses import dataclass
-from typing import List, Tuple, Dict, Optional
+from typing import List, Tuple, Dict, Optional, Any, Union
 import random, math, json, os
 from .bunkers import BunkerLibrary, place_bunkers
 
@@ -202,3 +202,160 @@ def generate(seed: int,
         pass
 
     return mapdata
+
+
+# ---------- Serialization helpers ----------
+
+Number = Union[int, float]
+
+
+def _encode_number(value: Any) -> Number:
+    """Return ints for whole numbers to keep JSON tidy, otherwise floats."""
+    try:
+        fval = float(value)
+    except Exception as exc:
+        raise TypeError(f"Value '{value}' must be numeric") from exc
+    if math.isfinite(fval) and abs(fval - round(fval)) < 1e-9:
+        return int(round(fval))
+    return fval
+
+def _to_tuple(values: Any, expected_len: int, name: str, default: Optional[Tuple[float, ...]] = None) -> Tuple[float, ...]:
+    """Convert a sequence into a tuple of floats of the given length."""
+    if values is None:
+        if default is None:
+            raise ValueError(f"Missing required field '{name}'")
+        return tuple(float(v) for v in default)
+    if not isinstance(values, (list, tuple)) or len(values) != expected_len:
+        raise ValueError(f"Field '{name}' must be a sequence of length {expected_len}")
+    try:
+        return tuple(float(values[i]) for i in range(expected_len))
+    except Exception as exc:
+        raise ValueError(f"Field '{name}' must contain numeric values") from exc
+
+
+def mapdata_to_dict(mapdata: MapData) -> Dict[str, Any]:
+    """Convert a MapData instance into a JSON-serializable dictionary."""
+    return {
+        "version": 1,
+        "bounds": [_encode_number(v) for v in mapdata.bounds],
+        "cube_size": _encode_number(getattr(mapdata, "cube_size", 1.0)),
+        "agent_radius": _encode_number(getattr(mapdata, "agent_radius", 0.5)),
+        "red_base": [_encode_number(v) for v in mapdata.red_base],
+        "blue_base": [_encode_number(v) for v in mapdata.blue_base],
+        "red_flag_stand": [_encode_number(v) for v in mapdata.red_flag_stand],
+        "blue_flag_stand": [_encode_number(v) for v in mapdata.blue_flag_stand],
+        "neutral_flag_stand": [_encode_number(v) for v in mapdata.neutral_flag_stand],
+        "blocks": [
+            {
+                "pos": [_encode_number(v) for v in block.pos],
+                "size": [_encode_number(v) for v in block.size],
+                "box_type": int(getattr(block, "box_type", 0)),
+            }
+            for block in mapdata.blocks
+        ],
+    }
+
+
+def mapdata_from_dict(data: Dict[str, Any]) -> MapData:
+    """Create a MapData instance from a dictionary (inverse of mapdata_to_dict)."""
+    if not isinstance(data, dict):
+        raise TypeError("Map data must be a JSON object/dict")
+
+    bounds = _to_tuple(data.get("bounds"), 2, "bounds")
+    cube_size = float(data.get("cube_size", 1.0))
+    agent_radius = float(data.get("agent_radius", 0.5))
+
+    default_red = (-bounds[0] * 0.35, 0.0, 0.0)
+    default_blue = (bounds[0] * 0.35, 0.0, 0.0)
+
+    red_base = _to_tuple(data.get("red_base"), 3, "red_base", default_red)
+    blue_base = _to_tuple(data.get("blue_base"), 3, "blue_base", default_blue)
+    red_flag_stand = _to_tuple(data.get("red_flag_stand"), 3, "red_flag_stand", red_base)
+    blue_flag_stand = _to_tuple(data.get("blue_flag_stand"), 3, "blue_flag_stand", blue_base)
+    neutral_flag_stand = _to_tuple(data.get("neutral_flag_stand"), 3, "neutral_flag_stand", (0.0, 0.0, 0.0))
+
+    blocks_data = data.get("blocks", [])
+    if not isinstance(blocks_data, list):
+        raise ValueError("Field 'blocks' must be a list")
+
+    def _expand_to_cubes(center: Tuple[float, float, float],
+                         size: Tuple[float, float, float],
+                         cube: float) -> List[Tuple[float, float, float]]:
+        counts: List[int] = []
+        for axis in range(3):
+            dim = size[axis]
+            if dim <= 0.0:
+                raise ValueError("Block dimensions must be positive")
+            count_f = dim / cube
+            count = int(round(count_f))
+            if count < 1 or abs(count_f - count) > 1e-5:
+                raise ValueError(
+                    "Block size must be an integer multiple of cube_size; "
+                    f"got {dim} on axis {axis} with cube_size {cube}"
+                )
+            counts.append(count)
+
+        origin = (
+            center[0] - size[0] * 0.5,
+            center[1] - size[1] * 0.5,
+            center[2] - size[2] * 0.5,
+        )
+
+        cubes: List[Tuple[float, float, float]] = []
+        for ix in range(counts[0]):
+            cx = origin[0] + (ix + 0.5) * cube
+            for iy in range(counts[1]):
+                cy = origin[1] + (iy + 0.5) * cube
+                for iz in range(counts[2]):
+                    cz = origin[2] + (iz + 0.5) * cube
+                    cubes.append((cx, cy, cz))
+        return cubes
+
+    blocks: Dict[Tuple[int, int, int], Block] = {}
+
+    for idx, b in enumerate(blocks_data):
+        if not isinstance(b, dict):
+            raise ValueError(f"Block #{idx} must be an object")
+        pos = _to_tuple(b.get("pos"), 3, f"blocks[{idx}].pos")
+        size_default = (cube_size, cube_size, cube_size)
+        size = _to_tuple(b.get("size"), 3, f"blocks[{idx}].size", size_default)
+        try:
+            box_type = int(b.get("box_type", 0))
+        except Exception as exc:
+            raise ValueError(f"blocks[{idx}].box_type must be an integer") from exc
+
+        for cube_pos in _expand_to_cubes(pos, size, cube_size):
+            key = (
+                int(round(cube_pos[0] / cube_size)),
+                int(round(cube_pos[1] / cube_size)),
+                int(round(cube_pos[2] / cube_size)),
+            )
+            if key not in blocks:
+                blocks[key] = Block(pos=cube_pos, size=(cube_size, cube_size, cube_size), box_type=box_type)
+
+    block_list = [blocks[key] for key in sorted(blocks.keys())]
+
+    return MapData(
+        blocks=block_list,
+        red_base=red_base,
+        blue_base=blue_base,
+        red_flag_stand=red_flag_stand,
+        blue_flag_stand=blue_flag_stand,
+        neutral_flag_stand=neutral_flag_stand,
+        bounds=bounds,
+        cube_size=cube_size,
+        agent_radius=agent_radius,
+    )
+
+
+def save_to_file(mapdata: MapData, path: str, *, indent: int = 2) -> None:
+    """Serialize MapData to a JSON file."""
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(mapdata_to_dict(mapdata), f, indent=indent)
+
+
+def load_from_file(path: str) -> MapData:
+    """Load MapData from a JSON file."""
+    with open(path, "r", encoding="utf-8") as f:
+        data = json.load(f)
+    return mapdata_from_dict(data)

@@ -49,6 +49,9 @@
     "shots_per_mag": 20,
     "reload_seconds": 1.5
   },
+  "map": {
+    "file": "configs/maps/arena_demo.json"
+  },
   "cubes": {
     "size": 1.0,
     "max_height": 5,

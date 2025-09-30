@@ -10,7 +10,7 @@ from game.constants import (
     PLAYER_HEIGHT, PLAYER_RADIUS,
     FLAG_PICKUP_RADIUS, FLAG_RETURN_RADIUS, BASE_CAPTURE_RADIUS,
 )
-from game.map_gen import generate
+from game.map_gen import load_from_file as load_map_from_file
 from game.transform import wrap_pi, deg_to_rad, rad_to_deg, forward_vector, local_move_delta, heading_forward_xy
 from game.bot_ai import SimpleBotBrain
 from game.ecs import (
@@ -66,9 +66,19 @@ class LaserTagServer:
         self.cfg = cfg
         self.next_pid = 1
 
-        size_x, size_z = self.cfg["gameplay"]["arena_size_m"]
-        cube_cfg = self.cfg.get("cubes", {})
-        self.mapdata = generate(seed=42, size_x=size_x, size_z=size_z, cubes=cube_cfg)
+        map_cfg = dict(self.cfg.get("map", {}))
+        map_file = map_cfg.get("file")
+        if not isinstance(map_file, str) or not map_file:
+            raise ValueError("Configuration must provide 'map.file' with a valid JSON map path")
+
+        try:
+            self.mapdata = load_map_from_file(map_file)
+        except Exception as e:
+            raise RuntimeError(f"Failed to load map file '{map_file}': {e}") from e
+
+        size_x, size_z = self.mapdata.bounds
+        self.cfg["gameplay"]["arena_size_m"] = [size_x, size_z]
+        print(f"[map] Loaded '{map_file}' ({size_x:.1f}×{size_z:.1f} m)")
 
         # Flag seeds: neutral center flag by default
         cx, cy, cz = getattr(self.mapdata, "neutral_flag_stand", (0.0, 0.0, 0.0))
