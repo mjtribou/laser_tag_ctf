@@ -14,6 +14,25 @@ from game.map_gen import generate
 from game.server_state import GameState, Player, Flag
 from game.transform import wrap_pi, deg_to_rad, rad_to_deg, forward_vector, local_move_delta, heading_forward_xy
 from game.bot_ai import SimpleBotBrain
+from game.ecs import (
+    World as ECSWorld,
+    CharacterBody,
+    CollisionBody,
+    FlagState,
+    CombatSystem,
+    CollisionSystem,
+    GrenadeRequest,
+    Health,
+    HitEvent,
+    MovementState,
+    MovementSystem,
+    Physics,
+    PlayerInfo,
+    PlayerInput as ECSPlayerInput,
+    Position,
+    Projectile,
+    Weapon,
+)
 
 # --- Panda3D / Bullet (headless) ---
 from panda3d.core import Vec3, Point3, NodePath, BitMask32, LPoint3
@@ -62,6 +81,13 @@ class LaserTagServer:
         self.recent_beams: List[Dict[str, Any]] = []
         self._state_history: List[Tuple[float, Dict[int, Tuple[float,float,float]]]] = []
 
+        # ECS world and entity mappings
+        self.ecs = ECSWorld()
+        self.pid_to_entity: Dict[int, int] = {}
+        self.entity_to_pid: Dict[int, int] = {}
+        self.map_entities: List[int] = []
+        self.flag_entities: Dict[int, int] = {}
+
         # ---- Bullet world ----
         self._root = NodePath("world")
         self.world = BulletWorld()
@@ -85,7 +111,15 @@ class LaserTagServer:
         self._stuck_since: Dict[int, float] = {}
         self._last_safe_pos: Dict[int, Tuple[float,float,float]] = {}
 
+        # ECS systems – movement/combat/collision
+        self.movement_system = MovementSystem(self.ecs, self.cfg["gameplay"])
+        self.combat_system = CombatSystem(self.ecs, self.cfg["gameplay"], self.cfg["server"], self.world, now_fn=now)
+        self.collision_system = CollisionSystem(self.ecs, self.cfg["gameplay"])
+        self._pre_physics_systems = [self.movement_system, self.combat_system]
+        self._post_physics_systems = [self.movement_system, self.collision_system]
+
         self._build_static_world()
+        self._init_flag_entities()
 
         # rolling list of killfeed events sent to clients
         # each item: {"t","attacker","attacker_name","victim","victim_name","cause"}
@@ -108,6 +142,10 @@ class LaserTagServer:
         np.setPythonTag("kind", "static")
         np.setPythonTag("tag", tag)
         self._static_nodes.append(np)
+        entity = self.ecs.create_entity()
+        self.map_entities.append(entity)
+        self.ecs.add_component(entity, Position(x=center[0], y=center[1], z=center[2]))
+        self.ecs.add_component(entity, CollisionBody(node=node, nodepath=np, tag=tag))
         return np
 
     def _build_static_world(self):
@@ -165,7 +203,7 @@ class LaserTagServer:
         self._attach_static_box((0.0, -hz - wall_t*0.5, wall_h*0.5), (size_x, wall_t, wall_h), "wall_s")
         self._attach_static_box((0.0, +hz + wall_t*0.5, wall_h*0.5), (size_x, wall_t, wall_h), "wall_n")
 
-    def _create_character(self, pid: int, pos: Tuple[float, float, float], yaw_rad: float):
+    def _create_character(self, entity: int, pid: int, pos: Tuple[float, float, float], yaw_rad: float):
         """Create a kinematic character using an **axis-aligned box** (AABB) shape.
 
         We keep the Bullet *character controller* but swap the shape to a
@@ -198,11 +236,15 @@ class LaserTagServer:
         self._char_node[pid] = ch
         self._node_id_to_pid[id(ch)] = pid
 
+        # Attach/refresh ECS CharacterBody component
+        self.ecs.add_component(entity, CharacterBody(controller=ch, nodepath=np))
+
         self._last_pos[pid] = (pos[0], pos[1], pos[2])
         self._stuck_since[pid] = 0.0
         self._last_safe_pos[pid] = (pos[0], pos[1], pos[2])
 
     def _remove_character(self, pid: int):
+        entity = self.pid_to_entity.get(pid)
         ch = self._char_node.get(pid)
         np = self._char_np.get(pid)
         if ch is not None:
@@ -218,6 +260,8 @@ class LaserTagServer:
         self._last_pos.pop(pid, None)
         self._stuck_since.pop(pid, None)
         self._last_safe_pos.pop(pid, None)
+        if entity is not None:
+            self.ecs.remove_component(entity, CharacterBody)
 
     # ---------- Spawn helpers ----------
     def _point_inside_any_block(self, x: float, y: float, z: float, margin: float = 0.02) -> bool:
@@ -238,6 +282,23 @@ class LaserTagServer:
                     return (x, y, z)
         return (bx, by, 1.5)
 
+    def _init_flag_entities(self) -> None:
+        self.flag_entities.clear()
+        for team, flag in self.gs.flags.items():
+            entity = self.ecs.create_entity()
+            self.flag_entities[team] = entity
+            home = self._flag_home_pos(flag)
+            self.ecs.add_component(entity, Position(x=flag.x, y=flag.y, z=flag.z))
+            self.ecs.add_component(
+                entity,
+                FlagState(
+                    team=team,
+                    at_base=flag.at_base,
+                    carried_by=flag.carried_by,
+                    home_position=home,
+                ),
+            )
+
     # ---------- Players / bots ----------
     def assign_spawn(self, team: int) -> Tuple[float, float, float, float]:
         base = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
@@ -255,10 +316,34 @@ class LaserTagServer:
 
         x, y, z, yaw_rad = self.assign_spawn(team)
         shots_per_mag = int(self.cfg["gameplay"].get("shots_per_mag", 20))
+
+        entity = self.ecs.create_entity()
+        self.pid_to_entity[pid] = entity
+        self.entity_to_pid[entity] = pid
+
+        self.ecs.add_component(entity, Position(x=x, y=y, z=z, yaw=yaw_rad, pitch=0.0))
+        self.ecs.add_component(entity, Physics(vx=0.0, vy=0.0, vz=0.0, on_ground=True))
+        self.ecs.add_component(entity, MovementState())
+        self.ecs.add_component(entity, ECSPlayerInput(yaw=math.degrees(yaw_rad), pitch=0.0))
+        self.ecs.add_component(entity, PlayerInfo(pid=pid, name=name, team=team, is_bot=is_bot))
+        self.ecs.add_component(
+            entity,
+            Weapon(
+                shots_remaining=shots_per_mag,
+                shots_per_mag=shots_per_mag,
+                reload_end=0.0,
+                last_fire_time=0.0,
+                cooldown=0.0,
+                spread_deg=float(self.cfg["gameplay"].get("base_spread_deg", 1.0)),
+            ),
+        )
+        self.ecs.add_component(entity, Health(hp=1, max_hp=1, alive=True, respawn_at=0.0))
+
         p = Player(pid=pid, name=name, team=team, is_bot=is_bot, x=x, y=y, z=z, yaw_rad=yaw_rad, pitch_rad=0.0, on_ground=True, shots_remaining=shots_per_mag, reload_end=0.0)
         self.gs.players[pid] = p
 
-        self._create_character(pid, (x, y, z), yaw_rad)
+        self._create_character(entity, pid, (x, y, z), yaw_rad)
+        self._last_safe_pos[pid] = (x, y, z)
 
         if is_bot:
             base_pos = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
@@ -280,6 +365,10 @@ class LaserTagServer:
         if pid in self.bot_brains:
             del self.bot_brains[pid]
         self._remove_character(pid)
+        entity = self.pid_to_entity.pop(pid, None)
+        if entity is not None:
+            self.entity_to_pid.pop(entity, None)
+            self.ecs.remove_entity(entity)
         if pid in self.gs.players:
             print(f"[leave] pid={pid} name={self.gs.players[pid].name}")
             del self.gs.players[pid]
@@ -304,12 +393,58 @@ class LaserTagServer:
         p.walking = False
         p.shots_remaining = int(self.cfg["gameplay"].get("shots_per_mag", 20))
         p.reload_end = 0.0
+        p.recoil_accum = 0.0
+
+        entity = self.pid_to_entity.get(pid)
+        if entity is not None:
+            pos_comp = self.ecs.get_component(entity, Position)
+            if pos_comp:
+                pos_comp.x = x
+                pos_comp.y = y
+                pos_comp.z = z
+                pos_comp.yaw = yaw_rad
+                pos_comp.pitch = 0.0
+            phys_comp = self.ecs.get_component(entity, Physics)
+            if phys_comp:
+                phys_comp.vx = phys_comp.vy = phys_comp.vz = 0.0
+                phys_comp.on_ground = True
+            move_state = self.ecs.get_component(entity, MovementState)
+            if move_state:
+                move_state.walking = False
+                move_state.crouching = False
+            input_comp = self.ecs.get_component(entity, ECSPlayerInput)
+            if input_comp:
+                input_comp.yaw = math.degrees(yaw_rad)
+                input_comp.pitch = 0.0
+                input_comp.mx = 0.0
+                input_comp.mz = 0.0
+                input_comp.fire = False
+                input_comp.jump = False
+                input_comp.walk = False
+                input_comp.crouch = False
+            weapon_comp = self.ecs.get_component(entity, Weapon)
+            if weapon_comp:
+                weapon_comp.shots_remaining = weapon_comp.shots_per_mag
+                weapon_comp.reload_end = 0.0
+                weapon_comp.recoil_accum = 0.0
+            health_comp = self.ecs.get_component(entity, Health)
+            if health_comp:
+                health_comp.hp = max(1, health_comp.max_hp or 1)
+                health_comp.alive = True
+                health_comp.respawn_at = 0.0
+
+        self._last_safe_pos[pid] = (x, y, z)
 
         # Recreate character controller if missing, else just move it
-        if pid not in self._char_np:
-            self._create_character(pid, (x, y, z), yaw_rad)
+        body = self.ecs.get_component(entity, CharacterBody) if entity is not None else None
+        if body is None or body.nodepath is None:
+            self._create_character(entity or self.ecs.create_entity(), pid, (x, y, z), yaw_rad)
         else:
-            self._char_np[pid].setPos(x, y, z)
+            body.nodepath.setPos(x, y, z)
+            try:
+                body.controller.setLinearMovement(Vec3(0, 0, 0), False)
+            except Exception:
+                pass
 
     # ---------- Game mechanics ----------
     def _flag_home_pos(self, fl: Flag) -> Tuple[float, float, float]:
@@ -664,7 +799,19 @@ class LaserTagServer:
         owner_vel = Vec3(owner.vx, owner.vy, owner.vz)
         node.setLinearVelocity(Vec3(fx*speed, fy*speed, fz*speed + float(self.cfg["gameplay"].get("grenade_lob_speed", 5.0))) + owner_vel)
         fuse = float(self.cfg["gameplay"].get("grenade_fuse", 3.0))
-        self._grenades[gid] = {"owner": owner.pid, "np": np, "node": node, "explode_at": now() + fuse}
+        entity = self.ecs.create_entity()
+        self.ecs.add_component(entity, Position(x=spawn_x, y=spawn_y, z=spawn_z))
+        self.ecs.add_component(
+            entity,
+            Projectile(
+                owner_pid=owner.pid,
+                speed=speed,
+                damage=float(self.cfg["gameplay"].get("grenade_damage", 0.0)),
+                ttl=fuse,
+                spawn_time=now(),
+            ),
+        )
+        self._grenades[gid] = {"owner": owner.pid, "np": np, "node": node, "explode_at": now() + fuse, "entity": entity}
         print(f'[grenade] spawn gid={gid} owner={owner.pid} power={power:.2f}')
 
     def _update_grenades(self):
@@ -685,168 +832,133 @@ class LaserTagServer:
                     dist = (dx*dx + dy*dy + dz*dz) ** 0.5
                     if dist <= radius:
                         k = float(self.cfg["gameplay"].get("grenade_knockback", 3.0))
-                        self._tag_player(pid, attacker=g["owner"], hit_point=(pl.x, pl.y, pl.z), shot_dir=(dx, dy, dz), cause="grenade", impulse_mult=k)
+                        self._handle_player_death(pid, attacker=g["owner"], hit_point=(pl.x, pl.y, pl.z), shot_dir=(dx, dy, dz), cause="grenade", impulse_mult=k)
                         print(f'[grenade] kill gid={gid} victim={pid} by={g["owner"]}')
                 self._recent_explosions.append((float(pos.x), float(pos.y), float(pos.z)))
                 self.world.removeRigidBody(g["node"])
                 g["np"].removeNode()
                 remove.append(gid)
         for gid in remove:
+            entity = self._grenades[gid].get("entity")
+            if entity is not None:
+                self.ecs.remove_entity(entity)
             del self._grenades[gid]
 # ---------- Input & per-tick ----------
-    def _movement_speed(self, p: Player, walk: bool, crouch: bool) -> float:
-        if crouch:
-            return float(self.cfg["gameplay"]["crouch_speed"])
-        if walk:
-            return float(self.cfg["gameplay"]["walk_speed"])
-        return float(self.cfg["gameplay"]["run_speed"])
-
-    def process_input(self, p: Player, inp: Dict[str, Any], dt: float):
-        if not p.alive:
-            return
-
-        shots_per_mag = int(self.cfg["gameplay"].get("shots_per_mag", 20))
-        reload_sec = float(self.cfg["gameplay"].get("reload_seconds", 1.5))
+    def _sync_inputs_to_ecs(self):
         now_t = now()
-        if p.shots_remaining <= 0 and now_t >= p.reload_end:
-            p.shots_remaining = shots_per_mag
+        for pid, entity in list(self.pid_to_entity.items()):
+            comp = self.ecs.get_component(entity, ECSPlayerInput)
+            if comp is None:
+                comp = ECSPlayerInput()
+                self.ecs.add_component(entity, comp)
 
-        p.yaw_rad = wrap_pi(deg_to_rad(float(inp.get("yaw", rad_to_deg(p.yaw_rad)))))
-        p.pitch_rad = wrap_pi(deg_to_rad(float(inp.get("pitch", rad_to_deg(p.pitch_rad)))))
+            data = self.inputs.get(pid, {})
+            comp.mx = float(data.get("mx", 0.0))
+            comp.mz = float(data.get("mz", 0.0))
+            comp.yaw = float(data.get("yaw", comp.yaw))
+            comp.pitch = float(data.get("pitch", comp.pitch))
+            comp.fire = bool(data.get("fire", False))
+            comp.fire_timestamp = float(data.get("fire_t", now_t))
+            comp.jump = bool(data.get("jump", False))
+            comp.crouch = bool(data.get("crouch", False))
+            comp.walk = bool(data.get("walk", False))
+            comp.grenade_charge = float(data.get("grenade", 0.0))
 
-        walk = bool(inp.get("walk", False))
-        crouch = bool(inp.get("crouch", False))
-        jump_pressed = bool(inp.get("jump", False))
+    def _sync_ecs_to_gamestate(self):
+        for pid, entity in self.pid_to_entity.items():
+            player = self.gs.players.get(pid)
+            if player is None:
+                continue
 
-        # Persist walking/crouching state so other systems and clients see it
-        p.walking = walk
-        p.crouching = crouch
+            pos = self.ecs.get_component(entity, Position)
+            phys = self.ecs.get_component(entity, Physics)
+            move_state = self.ecs.get_component(entity, MovementState)
+            health = self.ecs.get_component(entity, Health)
+            weapon = self.ecs.get_component(entity, Weapon)
 
-        speed = self._movement_speed(p, p.walking, p.crouching)
-        mx = float(inp.get("mx", 0.0))
-        mz = float(inp.get("mz", 0.0))
+            if pos:
+                player.x = pos.x
+                player.y = pos.y
+                player.z = pos.z
+                player.yaw_rad = pos.yaw
+                player.pitch_rad = pos.pitch
+            if phys:
+                player.vx = phys.vx
+                player.vy = phys.vy
+                player.vz = phys.vz
+                player.on_ground = phys.on_ground
+            if move_state:
+                player.walking = move_state.walking
+                player.crouching = move_state.crouching
+            if health:
+                player.alive = health.alive
+                player.respawn_at = health.respawn_at
+            if weapon:
+                player.shots_remaining = weapon.shots_remaining
+                player.reload_end = weapon.reload_end
+                player.recoil_accum = weapon.recoil_accum
 
-        ch = self._char_node.get(p.pid)
-        np = self._char_np.get(p.pid)
-        if (ch is None) or (np is None):
-            return
+    def _sync_flags_to_components(self) -> None:
+        for team, flag in self.gs.flags.items():
+            entity = self.flag_entities.get(team)
+            if entity is None:
+                continue
+            pos_comp = self.ecs.get_component(entity, Position)
+            if pos_comp:
+                pos_comp.x = flag.x
+                pos_comp.y = flag.y
+                pos_comp.z = flag.z
+            flag_comp = self.ecs.get_component(entity, FlagState)
+            if flag_comp:
+                flag_comp.at_base = flag.at_base
+                flag_comp.carried_by = flag.carried_by
 
-        # Determine current grounded state before computing acceleration
-        try:
-            on_ground = bool(ch.isOnGround())
-        except Exception:
-            on_ground = False
+    def _process_system_events(self) -> None:
+        if self.combat_system.beam_events:
+            self.recent_beams.extend(self.combat_system.beam_events)
 
-        # Desired horizontal velocity from input intent (world XY, m/s)
-        vdx, vdy = local_move_delta(mx, mz, p.yaw_rad, speed, 1.0)
+        for req in self.combat_system.grenade_requests:
+            owner = self.gs.players.get(req.owner_pid)
+            if owner is None:
+                continue
+            self._spawn_grenade(owner, req.power)
+            if req.owner_pid in self.inputs:
+                self.inputs[req.owner_pid]["grenade"] = 0.0
 
-        # Current horizontal velocity estimated from last physics sync
-        cur_vx, cur_vy = float(getattr(p, "vx", 0.0) or 0.0), float(getattr(p, "vy", 0.0) or 0.0)
+        for event in self.combat_system.hit_events:
+            victim_pid = self.entity_to_pid.get(event.victim_entity)
+            if victim_pid is None:
+                continue
+            attacker_pid = self.entity_to_pid.get(event.attacker_entity) if event.attacker_entity is not None else None
+            self._handle_player_death(
+                victim_pid,
+                attacker=attacker_pid,
+                hit_point=event.hit_point,
+                shot_dir=event.shot_dir,
+                cause=event.cause,
+            )
 
-        # Accel/decel limits (ground vs air) in m/s^2
-        gp = self.cfg.get("gameplay", {})
-        accel_ground = float(gp.get("acceleration_mps2", 20.0))
-        accel_air    = float(gp.get("air_acceleration_mps2", max(5.0, 0.5 * accel_ground)))
-        # Slower coasting when no input; faster stop when counter-strafing
-        decel_release_g = float(gp.get("decel_release_mps2", 0.5 * accel_ground))
-        decel_release_a = float(gp.get("air_decel_release_mps2", 0.5 * accel_air))
-        decel_counter_g = float(gp.get("decel_counter_mps2", 1.6 * accel_ground))
-        decel_counter_a = float(gp.get("air_decel_counter_mps2", 1.2 * accel_air))
-
-        # Choose rate depending on input and direction
-        intent_mag = min(1.0, math.hypot(mx, mz))
-        cur_spd = math.hypot(cur_vx, cur_vy)
-        if intent_mag <= 1e-6:
-            amax = decel_release_g if on_ground else decel_release_a
-        else:
-            # dot < 0 => intent roughly opposite to current motion
-            dot = cur_vx * vdx + cur_vy * vdy
-            if cur_spd > 1e-6 and dot < 0.0:
-                amax = decel_counter_g if on_ground else decel_counter_a
-            else:
-                amax = accel_ground if on_ground else accel_air
-        max_dv = max(0.0, amax * max(0.0, dt))
-
-        # Approach desired velocity with limited delta-v this tick
-        dvx, dvy = (vdx - cur_vx), (vdy - cur_vy)
-        dvmag = math.hypot(dvx, dvy)
-        if dvmag > 1e-6 and dvmag > max_dv:
-            scale = max_dv / dvmag
-            dvx *= scale
-            dvy *= scale
-        cmd_vx = cur_vx + dvx
-        cmd_vy = cur_vy + dvy
-
-        # Clamp commanded speed to the intended top speed for this stance
-        cmd_spd = math.hypot(cmd_vx, cmd_vy)
-        max_spd = max(0.0, speed)
-        if cmd_spd > max_spd and cmd_spd > 1e-6:
-            k = max_spd / cmd_spd
-            cmd_vx *= k
-            cmd_vy *= k
-
-        ch.setLinearMovement(Vec3(cmd_vx, cmd_vy, 0.0), False)
-        if jump_pressed and on_ground:
-            try:
-                ch.doJump()
-            except Exception:
-                pass
-
-        power = float(inp.get("grenade", 0.0))
-        if power > 0.0:
-            self._spawn_grenade(p, power)
-            inp["grenade"] = 0.0
-
-        if bool(inp.get("fire", False)) and p.shots_remaining > 0 and now_t >= p.reload_end:
-            t = now()
-            rof = float(self.cfg["gameplay"]["rapid_fire_rate_hz"])
-            min_dt = 1.0 / max(1e-6, rof)
-            if t - p.last_fire_time >= min_dt:
-                p.last_fire_time = t
-                p.shots_remaining -= 1
-                base = float(self.cfg["gameplay"]["base_spread_deg"])
-                move_factor = float(self.cfg["gameplay"]["spread_move_factor"])
-                crouch_bonus = float(self.cfg["gameplay"]["spread_crouch_bonus"])
-                intent_mag = min(1.0, math.hypot(mx, mz))
-                spread_deg = base + move_factor * intent_mag + (crouch_bonus if crouch else 0.0) + p.recoil_accum
-                spread_rad = math.radians(max(0.0, spread_deg))
-                victim_pid = None
-                hit_pt = None
-                shot_dir = None
-
-                fire_t = float(inp.get("fire_t", now()))
-                res = self._apply_hitscan(p, spread_rad, fire_time=fire_t)
-                if isinstance(res, tuple) and len(res) == 3:
-                    victim_pid, hit_pt, shot_dir = res
-                elif isinstance(res, int):
-                    victim_pid = res
-
-                p.recoil_accum = min(4.0, p.recoil_accum + float(self.cfg["gameplay"]["recoil_per_shot_deg"]))
-                if p.shots_remaining == 0:
-                    p.reload_end = t + reload_sec
-
-                if victim_pid is not None:
-                    self._tag_player(victim_pid, attacker=p.pid, hit_point=hit_pt, shot_dir=shot_dir)
-
-        # Exponential recoil decay to match client: a(t+dt) = a(t) * exp(-hz * dt)
-        try:
-            decay_hz = float(self.cfg["gameplay"].get("recoil_decay_hz", 7.5))
-        except Exception:
-            decay_hz = 7.5
-        if decay_hz > 0.0 and p.recoil_accum > 0.0:
-            p.recoil_accum *= math.exp(-decay_hz * max(0.0, dt))
-            # Snap tiny values to zero to avoid lingering tail
-            if p.recoil_accum < 1e-4:
-                p.recoil_accum = 0.0
-
-    def _tag_player(self, victim_pid: int, attacker: Optional[int] = None,
-                    hit_point: Optional[Tuple[float,float,float]] = None,
-                    shot_dir: Optional[Tuple[float,float,float]] = None,
-                    cause: str = "beam",
-                    impulse_mult: float = 1.0):
+    def _handle_player_death(self, victim_pid: int, attacker: Optional[int] = None,
+                             hit_point: Optional[Tuple[float,float,float]] = None,
+                             shot_dir: Optional[Tuple[float,float,float]] = None,
+                             cause: str = "beam",
+                             impulse_mult: float = 1.0):
         v = self.gs.players.get(victim_pid)
-        if not v or not v.alive:
+        if not v:
             return
+
+        entity = self.pid_to_entity.get(victim_pid)
+        pos_comp = self.ecs.get_component(entity, Position) if entity is not None else None
+        health_comp = self.ecs.get_component(entity, Health) if entity is not None else None
+        if health_comp:
+            health_comp.alive = False
+            health_comp.hp = 0
+            health_comp.respawn_at = now() + float(self.cfg["server"]["respawn_seconds"])
+
+        px = pos_comp.x if pos_comp else v.x
+        py = pos_comp.y if pos_comp else v.y
+        pz = pos_comp.z if pos_comp else v.z
+        v.x, v.y, v.z = px, py, pz
 
         # Stat updates
         v.outs += 1
@@ -887,7 +999,7 @@ class LaserTagServer:
         # Drop any carried flag where they are and clear player carry state
         for team_flag, fl in self.gs.flags.items():
             if fl.carried_by == victim_pid:
-                self._drop_flag(team_flag, v.x, v.y, v.z)
+                self._drop_flag(team_flag, px, py, pz)
                 try:
                     v.carrying_flag = None
                 except Exception:
@@ -929,7 +1041,7 @@ class LaserTagServer:
         rb.setIntoCollideMask(MASK_SOLID)
 
         np = self._root.attachNewNode(rb)
-        np.setPos(v.x, v.y, v.z)  # v.z is the player center in this codebase
+        np.setPos(px, py, pz)  # v.z is the player center in this codebase
         np.setPythonTag("kind", "corpse")
         np.setPythonTag("pid", victim_pid)
 
@@ -1284,20 +1396,33 @@ class LaserTagServer:
             # Bots
             self._update_bots()
 
-            # Apply inputs
-            for pid, p in list(self.gs.players.items()):
-                inp = self.inputs.get(pid, {})
-                self.process_input(p, inp, tick_dt)
+            # Sync raw inputs into ECS components
+            self._sync_inputs_to_ecs()
+
+            # Run ECS systems prior to physics integration
+            for system in self._pre_physics_systems:
+                system.update(tick_dt)
 
             # Step Bullet world with substeps
             self.world.doPhysics(tick_dt, substeps, fixed_dt)
 
+            # Post-physics systems
+            for system in self._post_physics_systems:
+                system.late_update(tick_dt)
+
+            # Ensure legacy GameState reflects physics before event processing
+            self._sync_ecs_to_gamestate()
+
+            # Resolve movement/combat events (beams, deaths, grenades)
+            self._process_system_events()
+            self._sync_ecs_to_gamestate()
+
             # Flags housekeeping
             self._carry_flags_update()
             self._dropped_flags_auto_return()
+            self._sync_flags_to_components()
 
-            # Sync physics → game state, then unstick
-            self._after_physics_sync()
+            # Grenades and unsticking use the updated game state
             self._update_grenades()
             self._auto_unstick(tick_dt)
             self._record_history()
