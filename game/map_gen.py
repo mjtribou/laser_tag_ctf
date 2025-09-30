@@ -280,7 +280,7 @@ def mapdata_from_dict(data: Dict[str, Any]) -> MapData:
 
     def _expand_to_cubes(center: Tuple[float, float, float],
                          size: Tuple[float, float, float],
-                         cube: float) -> List[Tuple[float, float, float]]:
+                         cube: float) -> List[Tuple[Tuple[float, float, float], Tuple[int, int, int]]]:
         counts: List[int] = []
         for axis in range(3):
             dim = size[axis]
@@ -301,14 +301,18 @@ def mapdata_from_dict(data: Dict[str, Any]) -> MapData:
             center[2] - size[2] * 0.5,
         )
 
-        cubes: List[Tuple[float, float, float]] = []
+        cubes: List[Tuple[Tuple[float, float, float], Tuple[int, int, int]]] = []
+        base_ix = int(round(origin[0] / cube))
+        base_iy = int(round(origin[1] / cube))
+        base_iz = int(round(origin[2] / cube))
         for ix in range(counts[0]):
             cx = origin[0] + (ix + 0.5) * cube
             for iy in range(counts[1]):
                 cy = origin[1] + (iy + 0.5) * cube
                 for iz in range(counts[2]):
                     cz = origin[2] + (iz + 0.5) * cube
-                    cubes.append((cx, cy, cz))
+                    key = (base_ix + ix, base_iy + iy, base_iz + iz)
+                    cubes.append(((cx, cy, cz), key))
         return cubes
 
     blocks: Dict[Tuple[int, int, int], Block] = {}
@@ -324,12 +328,7 @@ def mapdata_from_dict(data: Dict[str, Any]) -> MapData:
         except Exception as exc:
             raise ValueError(f"blocks[{idx}].box_type must be an integer") from exc
 
-        for cube_pos in _expand_to_cubes(pos, size, cube_size):
-            key = (
-                int(round(cube_pos[0] / cube_size)),
-                int(round(cube_pos[1] / cube_size)),
-                int(round(cube_pos[2] / cube_size)),
-            )
+        for cube_pos, key in _expand_to_cubes(pos, size, cube_size):
             if key not in blocks:
                 blocks[key] = Block(pos=cube_pos, size=(cube_size, cube_size, cube_size), box_type=box_type)
 
