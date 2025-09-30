@@ -108,3 +108,20 @@ class FlagState:
     at_base: bool = True
     carried_by: Optional[int] = None
     home_position: Tuple[float, float, float] = field(default_factory=lambda: (0.0, 0.0, 0.0))
+    dropped_at_time: float = 0.0
+
+
+@dataclass
+class PlayerStats:
+    """Scoreboard and telemetry for a player."""
+    tags: int = 0
+    outs: int = 0
+    captures: int = 0
+    defences: int = 0
+    ping_ms: float = 0.0
+
+
+@dataclass
+class FlagCarrier:
+    """Tracks which flag a player is currently holding."""
+    flag_team: Optional[int] = None

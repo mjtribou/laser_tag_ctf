@@ -11,13 +11,13 @@ from game.constants import (
     FLAG_PICKUP_RADIUS, FLAG_RETURN_RADIUS, BASE_CAPTURE_RADIUS,
 )
 from game.map_gen import generate
-from game.server_state import GameState, Player, Flag
 from game.transform import wrap_pi, deg_to_rad, rad_to_deg, forward_vector, local_move_delta, heading_forward_xy
 from game.bot_ai import SimpleBotBrain
 from game.ecs import (
     World as ECSWorld,
     CharacterBody,
     CollisionBody,
+    FlagCarrier,
     FlagState,
     CombatSystem,
     CollisionSystem,
@@ -29,10 +29,13 @@ from game.ecs import (
     Physics,
     PlayerInfo,
     PlayerInput as ECSPlayerInput,
+    PlayerStats,
     Position,
     Projectile,
     Weapon,
 )
+from game.ecs.replication import SnapshotBuilder
+from game.ecs.views import GameStateView, PlayerView, FlagView, TeamView
 
 # --- Panda3D / Bullet (headless) ---
 from panda3d.core import Vec3, Point3, NodePath, BitMask32, LPoint3
@@ -61,18 +64,49 @@ def aabb_contains(x: float, y: float, z: float, center: Tuple[float,float,float]
 class LaserTagServer:
     def __init__(self, cfg: Dict[str, Any]):
         self.cfg = cfg
-        self.gs = GameState()
         self.next_pid = 1
 
         size_x, size_z = self.cfg["gameplay"]["arena_size_m"]
         cube_cfg = self.cfg.get("cubes", {})
         self.mapdata = generate(seed=42, size_x=size_x, size_z=size_z, cubes=cube_cfg)
 
-        # Single center-flag mode: spawn one neutral flag at arena center
+        # Flag seeds: neutral center flag by default
         cx, cy, cz = getattr(self.mapdata, "neutral_flag_stand", (0.0, 0.0, 0.0))
-        neutral_flag = Flag(team=TEAM_NEUTRAL, at_base=True, carried_by=None,
-                            x=cx, y=cy, z=cz)
-        self.gs.flags = {TEAM_NEUTRAL: neutral_flag}
+        self._flag_initial = {
+            TEAM_NEUTRAL: {
+                "position": (cx, cy, cz),
+                "at_base": True,
+                "carried_by": None,
+            }
+        }
+        red_home = getattr(self.mapdata, "red_flag_stand", None)
+        blue_home = getattr(self.mapdata, "blue_flag_stand", None)
+        if red_home is not None:
+            self._flag_initial[TEAM_RED] = {
+                "position": red_home,
+                "at_base": True,
+                "carried_by": None,
+                "home_position": red_home,
+            }
+        if blue_home is not None:
+            self._flag_initial[TEAM_BLUE] = {
+                "position": blue_home,
+                "at_base": True,
+                "carried_by": None,
+                "home_position": blue_home,
+            }
+
+        # Legacy views backed by ECS components
+        self.player_views: Dict[int, PlayerView] = {}
+        self.flag_views: Dict[int, FlagView] = {}
+        self.team_captures: Dict[int, int] = {TEAM_RED: 0, TEAM_BLUE: 0}
+        self.team_views: Dict[int, TeamView] = {
+            TEAM_RED: TeamView(self.team_captures, TEAM_RED),
+            TEAM_BLUE: TeamView(self.team_captures, TEAM_BLUE),
+        }
+        self.match_over: bool = False
+        self.winner: Optional[int] = None
+        self.start_time: float = now()
 
         # networking / gameplay
         self.clients: Dict[int, asyncio.StreamWriter] = {}
@@ -80,6 +114,8 @@ class LaserTagServer:
         self.bot_brains: Dict[int, SimpleBotBrain] = {}
         self.recent_beams: List[Dict[str, Any]] = []
         self._state_history: List[Tuple[float, Dict[int, Tuple[float,float,float]]]] = []
+        self.killfeed: List[Dict[str, Any]] = []
+        self.messagefeed: List[Dict[str, Any]] = []
 
         # ECS world and entity mappings
         self.ecs = ECSWorld()
@@ -87,6 +123,8 @@ class LaserTagServer:
         self.entity_to_pid: Dict[int, int] = {}
         self.map_entities: List[int] = []
         self.flag_entities: Dict[int, int] = {}
+        self.snapshot_builder = SnapshotBuilder(self.ecs)
+        self.gs = GameStateView(self)
 
         # ---- Bullet world ----
         self._root = NodePath("world")
@@ -120,13 +158,6 @@ class LaserTagServer:
 
         self._build_static_world()
         self._init_flag_entities()
-
-        # rolling list of killfeed events sent to clients
-        # each item: {"t","attacker","attacker_name","victim","victim_name","cause"}
-        self.killfeed = []
-        # rolling list of game message events (e.g., flag pickup/drop/capture)
-        # each item: {"t","event","actor","actor_name"}
-        self.messagefeed = []
 
     # ---------- Physics world ----------
     def _attach_static_box(self, center: Tuple[float, float, float], size: Tuple[float, float, float], tag: str):
@@ -284,20 +315,22 @@ class LaserTagServer:
 
     def _init_flag_entities(self) -> None:
         self.flag_entities.clear()
-        for team, flag in self.gs.flags.items():
+        self.flag_views.clear()
+        for team, spec in self._flag_initial.items():
             entity = self.ecs.create_entity()
             self.flag_entities[team] = entity
-            home = self._flag_home_pos(flag)
-            self.ecs.add_component(entity, Position(x=flag.x, y=flag.y, z=flag.z))
-            self.ecs.add_component(
-                entity,
-                FlagState(
-                    team=team,
-                    at_base=flag.at_base,
-                    carried_by=flag.carried_by,
-                    home_position=home,
-                ),
+            home = spec.get("home_position", spec["position"])
+            pos = Position(x=spec["position"][0], y=spec["position"][1], z=spec["position"][2])
+            state = FlagState(
+                team=team,
+                at_base=bool(spec.get("at_base", True)),
+                carried_by=spec.get("carried_by"),
+                home_position=home,
+                dropped_at_time=float(spec.get("dropped_at_time", 0.0)),
             )
+            self.ecs.add_component(entity, pos)
+            self.ecs.add_component(entity, state)
+            self.flag_views[team] = FlagView(entity=entity, state=state, position=pos)
 
     # ---------- Players / bots ----------
     def assign_spawn(self, team: int) -> Tuple[float, float, float, float]:
@@ -307,8 +340,8 @@ class LaserTagServer:
         return x, y, z, yaw_rad
 
     def add_player(self, name: str, is_bot: bool = False) -> int:
-        red_ct = sum(1 for p in self.gs.players.values() if p.team == TEAM_RED)
-        blue_ct = sum(1 for p in self.gs.players.values() if p.team == TEAM_BLUE)
+        red_ct = sum(1 for p in self.player_views.values() if p.team == TEAM_RED)
+        blue_ct = sum(1 for p in self.player_views.values() if p.team == TEAM_BLUE)
         team = TEAM_RED if red_ct <= blue_ct else TEAM_BLUE
 
         pid = self.next_pid
@@ -321,26 +354,45 @@ class LaserTagServer:
         self.pid_to_entity[pid] = entity
         self.entity_to_pid[entity] = pid
 
-        self.ecs.add_component(entity, Position(x=x, y=y, z=z, yaw=yaw_rad, pitch=0.0))
-        self.ecs.add_component(entity, Physics(vx=0.0, vy=0.0, vz=0.0, on_ground=True))
-        self.ecs.add_component(entity, MovementState())
-        self.ecs.add_component(entity, ECSPlayerInput(yaw=math.degrees(yaw_rad), pitch=0.0))
-        self.ecs.add_component(entity, PlayerInfo(pid=pid, name=name, team=team, is_bot=is_bot))
-        self.ecs.add_component(
-            entity,
-            Weapon(
-                shots_remaining=shots_per_mag,
-                shots_per_mag=shots_per_mag,
-                reload_end=0.0,
-                last_fire_time=0.0,
-                cooldown=0.0,
-                spread_deg=float(self.cfg["gameplay"].get("base_spread_deg", 1.0)),
-            ),
+        pos = Position(x=x, y=y, z=z, yaw=yaw_rad, pitch=0.0)
+        phys = Physics(vx=0.0, vy=0.0, vz=0.0, on_ground=True)
+        movement = MovementState()
+        inputs = ECSPlayerInput(yaw=math.degrees(yaw_rad), pitch=0.0)
+        info = PlayerInfo(pid=pid, name=name, team=team, is_bot=is_bot)
+        weapon = Weapon(
+            shots_remaining=shots_per_mag,
+            shots_per_mag=shots_per_mag,
+            reload_end=0.0,
+            last_fire_time=0.0,
+            cooldown=0.0,
+            spread_deg=float(self.cfg["gameplay"].get("base_spread_deg", 1.0)),
+            recoil_accum=0.0,
         )
-        self.ecs.add_component(entity, Health(hp=1, max_hp=1, alive=True, respawn_at=0.0))
+        health = Health(hp=1, max_hp=1, alive=True, respawn_at=0.0)
+        stats = PlayerStats()
+        carrier = FlagCarrier(flag_team=None)
 
-        p = Player(pid=pid, name=name, team=team, is_bot=is_bot, x=x, y=y, z=z, yaw_rad=yaw_rad, pitch_rad=0.0, on_ground=True, shots_remaining=shots_per_mag, reload_end=0.0)
-        self.gs.players[pid] = p
+        self.ecs.add_component(entity, pos)
+        self.ecs.add_component(entity, phys)
+        self.ecs.add_component(entity, movement)
+        self.ecs.add_component(entity, inputs)
+        self.ecs.add_component(entity, info)
+        self.ecs.add_component(entity, weapon)
+        self.ecs.add_component(entity, health)
+        self.ecs.add_component(entity, stats)
+        self.ecs.add_component(entity, carrier)
+
+        self.player_views[pid] = PlayerView(
+            pid=pid,
+            info=info,
+            position=pos,
+            physics=phys,
+            movement=movement,
+            weapon=weapon,
+            health=health,
+            stats=stats,
+            flag_carrier=carrier,
+        )
 
         self._create_character(entity, pid, (x, y, z), yaw_rad)
         self._last_safe_pos[pid] = (x, y, z)
@@ -369,9 +421,9 @@ class LaserTagServer:
         if entity is not None:
             self.entity_to_pid.pop(entity, None)
             self.ecs.remove_entity(entity)
-        if pid in self.gs.players:
-            print(f"[leave] pid={pid} name={self.gs.players[pid].name}")
-            del self.gs.players[pid]
+        player_view = self.player_views.pop(pid, None)
+        if player_view is not None:
+            print(f"[leave] pid={pid} name={player_view.name}")
 
     def respawn_player(self, pid: int):
         p = self.gs.players.get(pid)
@@ -447,7 +499,7 @@ class LaserTagServer:
                 pass
 
     # ---------- Game mechanics ----------
-    def _flag_home_pos(self, fl: Flag) -> Tuple[float, float, float]:
+    def _flag_home_pos(self, fl: FlagView) -> Tuple[float, float, float]:
         """Return the home stand position for a flag (team or neutral)."""
         if fl.team == TEAM_RED:
             return self.mapdata.red_flag_stand
@@ -463,7 +515,7 @@ class LaserTagServer:
         fl.x, fl.y, fl.z = x, y, max(0.0, z)
         fl.dropped_at_time = now()
 
-    def _pickup_try(self, p: Player):
+    def _pickup_try(self, p: PlayerView):
         for team_flag, fl in self.gs.flags.items():
             # Returning own flag (legacy two-flag CTF) — not applicable for neutral flag
             if team_flag in (TEAM_RED, TEAM_BLUE) and team_flag == p.team:
@@ -590,7 +642,7 @@ class LaserTagServer:
 
     # ---------- Lag-comp history ----------
     def _record_history(self):
-        snap = {pid: (p.x, p.y, p.z) for pid, p in self.gs.players.items()}
+        snap = {pid: (p.x, p.y, p.z) for pid, p in self.player_views.items()}
         t = now()
         self._state_history.append((t, snap))
         # keep ~1s of history
@@ -599,7 +651,7 @@ class LaserTagServer:
 
     def _positions_at(self, t: float) -> Dict[int, Tuple[float, float, float]]:
         if not self._state_history:
-            return {pid: (p.x, p.y, p.z) for pid, p in self.gs.players.items()}
+            return {pid: (p.x, p.y, p.z) for pid, p in self.player_views.items()}
         times = [ts for ts, _ in self._state_history]
         idx = bisect_right(times, t) - 1
         if idx < 0:
@@ -642,7 +694,7 @@ class LaserTagServer:
             "owner": shooter_pid,
         })
 
-    def _apply_hitscan(self, shooter: "Player", spread_rad: float, fire_time: Optional[float] = None):
+    def _apply_hitscan(self, shooter: "PlayerView", spread_rad: float, fire_time: Optional[float] = None):
         """
         Fire one hitscan ray with cone spread.
         Returns (victim_pid, hit_point_xyz, dir_xyz) or (None, None, None).
@@ -650,7 +702,11 @@ class LaserTagServer:
         """
         import math, random
 
-        positions = self._positions_at(fire_time) if fire_time is not None else {pid: (p.x, p.y, p.z) for pid, p in self.gs.players.items()}
+        positions = (
+            self._positions_at(fire_time)
+            if fire_time is not None
+            else {pid: (p.x, p.y, p.z) for pid, p in self.player_views.items()}
+        )
 
         # Shooter eye position (align with client camera)
         ph = float(self.cfg["gameplay"]["player_height"])
@@ -740,7 +796,7 @@ class LaserTagServer:
             return max(tmin, 0.0)
 
         victim_pid, t_player = None, None
-        for pid, v in self.gs.players.items():
+        for pid, v in self.player_views.items():
             if pid == shooter.pid:               continue
             if not v.alive:                      continue
             if (not friendly_fire) and (v.team == shooter.team):  continue
@@ -768,7 +824,7 @@ class LaserTagServer:
         return victim_pid, hit_point, (fx/dlen, fy/dlen, fz/dlen)
 
     
-    def _spawn_grenade(self, owner: Player, power: float):
+    def _spawn_grenade(self, owner: PlayerView, power: float):
         gid = self._next_gid
         self._next_gid += 1
         radius = 0.2
@@ -1208,73 +1264,58 @@ class LaserTagServer:
     def build_snapshot(self) -> Dict[str, Any]:
         self._trim_old_beams()
         now_t = now()
-        players = []
-        for p in self.gs.players.values():
-            d = {
-                "pid": p.pid, "name": p.name, "team": p.team,
-                "x": p.x, "y": p.y, "z": p.z,
-                "alive": p.alive,
-                "shots": p.shots_remaining,
-                "reload": max(0.0, p.reload_end - now_t),
-                "tags": p.tags, "outs": p.outs, "captures": p.captures, "defences": p.defences, "ping": int(p.ping_ms)
-            }
-            if p.alive:
-                d["yaw"]   = rad_to_deg(p.yaw_rad)
-                d["pitch"] = rad_to_deg(p.pitch_rad)
-                d["roll"]  = 0.0
-            else:
-                np = self._corpse_np.get(p.pid)
-                if np is not None:
-                    h, pu, r = np.getHpr()  # degrees
-                    d["yaw"], d["pitch"], d["roll"] = float(h), float(pu), float(r)
-                else:
-                    # fallback to last commanded angles if corpse NP is missing
-                    d["yaw"] = rad_to_deg(p.yaw_rad)
-                    d["pitch"] = rad_to_deg(p.pitch_rad)
-                    d["roll"] = 0.0
-            players.append(d)
 
-        flags = []
-        for fl in self.gs.flags.values():
-            flags.append({
-                "team": fl.team, "at_base": fl.at_base, "carried_by": fl.carried_by,
-                "x": fl.x, "y": fl.y, "z": fl.z
-            })
-        
-        grenades = []
+        grenades: List[Dict[str, Any]] = []
         for gid, g in self._grenades.items():
-            pos = g['np'].getPos()
-            player = self.gs.players.get(g["owner"])
-            team = player.team if player else TEAM_RED
-            grenades.append({"id": gid, "team": team, "x": float(pos.x), "y": float(pos.y), "z": float(pos.z)})
+            pos = g["np"].getPos()
+            owner_pid = g["owner"]
+            owner_view = self.player_views.get(owner_pid)
+            team = owner_view.team if owner_view else TEAM_RED
+            grenades.append(
+                {
+                    "id": gid,
+                    "team": team,
+                    "x": float(pos.x),
+                    "y": float(pos.y),
+                    "z": float(pos.z),
+                }
+            )
 
-        explosions = [{"x": x, "y": y, "z": z} for (x, y, z) in self._recent_explosions]
+        explosions = [
+            {"x": x, "y": y, "z": z} for (x, y, z) in self._recent_explosions
+        ]
         self._recent_explosions.clear()
-        now_t = now()
+
+        corpse_angles: Dict[int, Tuple[float, float, float]] = {}
+        for pid, np in self._corpse_np.items():
+            try:
+                h, p, r = np.getHpr()
+                corpse_angles[pid] = (float(h), float(p), float(r))
+            except Exception:
+                continue
+
         hud_cfg = self.cfg.get("hud", {})
         ttl = float(hud_cfg.get("killfeed_ttl", 4.0))
         kmax = int(hud_cfg.get("killfeed_max", 6))
         feed = [e for e in self.killfeed if (now_t - float(e.get("t", 0.0))) <= ttl]
-        feed = feed[-kmax:]  # last N within TTL
-        # message feed (flag events etc.)
+        feed = feed[-kmax:]
         messages = [m for m in self.messagefeed if (now_t - float(m.get("t", 0.0))) <= ttl]
         messages = messages[-kmax:]
 
-        return {
-            "type": "state",
-            "time": now(),
-            "players": players,
-            "flags": flags,
-            "grenades": grenades,
-            "explosions": explosions,
-            "teams": {TEAM_RED: {"captures": self.gs.teams[TEAM_RED].captures},
-                      TEAM_BLUE: {"captures": self.gs.teams[TEAM_BLUE].captures}},
-            "match_over": self.gs.match_over,
-            "winner": self.gs.winner,
-            "beams": self.recent_beams,
-            "killfeed": feed,
-            "messages": messages,
-        }
+        snapshot = self.snapshot_builder.build(
+            now_t=now_t,
+            beams=self.recent_beams,
+            grenades=grenades,
+            explosions=explosions,
+            killfeed=feed,
+            messages=messages,
+            team_captures=self.team_captures,
+            match_over=self.match_over,
+            winner=self.winner,
+            corpse_angles=corpse_angles,
+        )
+
+        return snapshot
 
     # ---------- Networking ----------
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
