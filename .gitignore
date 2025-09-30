@@ -91,3 +91,6 @@ site/
 .env.*
 *.env
 *.env.*
+
+# ---- Local client runtime state ----
+configs/client_state.json

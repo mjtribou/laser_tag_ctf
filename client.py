@@ -452,7 +452,7 @@ def _angle_lerp_deg(a: float, b: float, t: float) -> float:
 
 
 class GameApp(ShowBase):
-    def __init__(self, cfg, host: str, port: int, name: str, interp_delay: float, interp_predict: float = 0.0, settings: Dict[str, Any] = None, team_pref: str = "auto"):
+    def __init__(self, cfg, host: str, port: int, name: str, interp_delay: float, interp_predict: float = 0.0, settings: Dict[str, Any] = None, team_pref: str = "auto", manual_host: bool = False):
         ShowBase.__init__(self)
         self.set_background_color(0.05, 0.05, 0.07, 1)
         self.disableMouse()
@@ -475,6 +475,7 @@ class GameApp(ShowBase):
         self.cfg = cfg
         self.client = NetworkClient(cfg, name=name, team_pref=team_pref)
         self.host, self.port = host, port
+        self.manual_host = bool(manual_host)
         self.yaw, self.pitch = 0.0, 0.0
         # Controls overrides (mouse_sensitivity, invert_y, toggle_crouch)
         self._controls = dict(cfg.get("controls", {}))
@@ -895,20 +896,7 @@ class GameApp(ShowBase):
 
         # --- network start (connect first, then start recv loop) ---
         self.net_runner = AsyncRunner()
-
-        def _after_connect(fut):
-            try:
-                fut.result()  # raise if connect() failed
-            except Exception as e:
-                print(f"[net] connect failed: {e}")
-                return
-            # record my team (used by CosmeticsManager to show teammate markers)
-            self.local_team = self.client.team
-            # start the receive loop once the reader/writer are ready
-            self.net_runner.run_coro(self.client.recv_state_loop(self.on_state))
-
-        connect_future = self.net_runner.run_coro(self.client.connect(host, port))
-        connect_future.add_done_callback(_after_connect)
+        self._initiate_connection(self.host, self.port)
 
         # optional: a small heartbeat so you can see snapshots arriving
         self._last_state_log = 0.0
@@ -1784,6 +1772,30 @@ class GameApp(ShowBase):
                 pass
         return task.cont
 
+    def _initiate_connection(self, host: str, port: int, *, skip_last: bool = False) -> None:
+        """Try to connect and optionally fall back to LAN discovery when the cache fails."""
+        future = self.net_runner.run_coro(self.client.connect(host, port))
+
+        def _after_connect(fut: asyncio.Future):
+            try:
+                fut.result()
+            except Exception as e:
+                print(f"[net] connect failed: {e}")
+                if not self.manual_host and not skip_last:
+                    _forget_last_server_state()
+                    alt_host, alt_port = pick_server(self.settings or {}, self.cfg, skip_last=True)
+                    if alt_host and alt_port and (alt_host != host or alt_port != port):
+                        print(f"[net] retrying via LAN discovery: {alt_host}:{alt_port}")
+                        self.host, self.port = alt_host, alt_port
+                        self._initiate_connection(alt_host, alt_port, skip_last=True)
+                return
+
+            self.host, self.port = host, port
+            self.local_team = self.client.team
+            self.net_runner.run_coro(self.client.recv_state_loop(self.on_state))
+
+        future.add_done_callback(_after_connect)
+
 def _load_client_state(path: str) -> Dict[str, Any]:
     try:
         with open(path, "r") as f:
@@ -1801,21 +1813,21 @@ def _save_client_state(path: str, state: Dict[str, Any]):
         print(f"[settings] failed to save client state: {e}")
 
 
-def pick_server(settings: Dict[str, Any], shared_cfg: Dict[str, Any]):
+def pick_server(settings: Dict[str, Any], shared_cfg: Dict[str, Any], skip_last: bool = False):
     net = settings.get("network", {}) if settings else {}
     srv = net.get("server", {})
     host = srv.get("host")
     port = int(srv.get("port", shared_cfg.get("server", {}).get("port", 50007)))
     disc = net.get("discovery", {})
     discovery_enabled = bool(disc.get("enabled", True))
+    prefs = settings.get("server_prefs", {}) if settings else {}
 
     # If host is explicit (not "auto"), use it directly
     if host and isinstance(host, str) and host != "auto":
         return host, port
 
     # If remember_last_server is enabled and we have one saved, use it
-    prefs = settings.get("server_prefs", {}) if settings else {}
-    if bool(prefs.get("remember_last_server", True)):
+    if (not skip_last) and bool(prefs.get("remember_last_server", True)):
         state = _load_client_state(os.path.join("configs", "client_state.json"))
         last = state.get("last_server")
         if last and isinstance(last, dict) and last.get("host") and last.get("port"):
@@ -1857,6 +1869,21 @@ def pick_server(settings: Dict[str, Any], shared_cfg: Dict[str, Any]):
         print("[discovery] no servers yet; retrying...")
         time.sleep(timeout_s)
     return None, None
+
+
+def _forget_last_server_state(path: str | None = None) -> bool:
+    """Remove the cached last_server entry so subsequent runs can rediscover."""
+    if path is None:
+        path = os.path.join("configs", "client_state.json")
+    try:
+        state = _load_client_state(path)
+        if "last_server" in state:
+            state.pop("last_server", None)
+            _save_client_state(path, state)
+            return True
+    except Exception:
+        pass
+    return False
 
 
 def main():
@@ -1909,7 +1936,17 @@ def main():
         except Exception:
             pass
 
-    app = GameApp(cfg, host=host, port=port, name=profile_name, interp_delay=args.interp_delay, interp_predict=args.interp_predict, settings=settings, team_pref=team_pref)
+    app = GameApp(
+        cfg,
+        host=host,
+        port=port,
+        name=profile_name,
+        interp_delay=args.interp_delay,
+        interp_predict=args.interp_predict,
+        settings=settings,
+        team_pref=team_pref,
+        manual_host=(args.host is not None and args.host != ""),
+    )
 
     # FPS meter and cap
     try:
