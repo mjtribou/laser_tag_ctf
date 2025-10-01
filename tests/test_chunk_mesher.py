@@ -53,3 +53,17 @@ def test_atlas_uv_lookup():
     assert coords == [(0.25, 0.5), (0.5, 0.5), (0.5, 0.75), (0.25, 0.75)]
     textures = node.findAllTextures()
     assert textures.getNumTextures() == 1
+
+
+def test_greedy_reduces_vertices_on_flat_top():
+    blocks = [(x, y, 0, 1) for x in range(4) for y in range(4)]
+
+    mesher_basic = ChunkMesher({1: BlockDef("stone", "stone")}, use_atlas=False, cube_size=1.0, greedy=False)
+    node_basic = mesher_basic.build_geomnode(blocks, (0, 0, 0), (4, 4, 1))
+    basic_rows = node_basic.node().getGeom(0).getVertexData().getNumRows()
+
+    mesher_greedy = ChunkMesher({1: BlockDef("stone", "stone")}, use_atlas=False, cube_size=1.0, greedy=True)
+    node_greedy = mesher_greedy.build_geomnode(blocks, (0, 0, 0), (4, 4, 1))
+    greedy_rows = node_greedy.node().getGeom(0).getVertexData().getNumRows()
+
+    assert greedy_rows < basic_rows

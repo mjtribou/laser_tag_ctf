@@ -944,12 +944,19 @@ class GameApp(ShowBase):
                 print("[perf] chunking atlas disabled (missing texture or meta)")
                 use_atlas = False
 
+        greedy_cfg = engine_config_get("world.chunking.greedy", False)
+        if isinstance(greedy_cfg, str):
+            greedy_enabled = greedy_cfg.strip().lower() not in ("", "0", "false", "no")
+        else:
+            greedy_enabled = bool(greedy_cfg)
+
         mesher = ChunkMesher(
             block_registry,
             use_atlas,
             cube_size=cube_size,
             atlas_meta=atlas_meta,
             atlas_texture=atlas_texture,
+            greedy=greedy_enabled,
         )
         chunk_root = self.render.attachNewNode("world_chunks")
 
