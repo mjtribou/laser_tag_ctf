@@ -39,7 +39,19 @@ from game.ecs.views import GameStateView, PlayerView, FlagView, TeamView
 
 # --- Panda3D / Bullet (headless) ---
 from panda3d.core import Vec3, Point3, NodePath, BitMask32, LPoint3
-from panda3d.bullet import BulletWorld, BulletRigidBodyNode, BulletBoxShape, BulletCharacterControllerNode, BulletSphereShape
+from panda3d.bullet import (
+    BulletWorld,
+    BulletRigidBodyNode,
+    BulletBoxShape,
+    BulletCharacterControllerNode,
+    BulletSphereShape,
+    BulletTriangleMesh,
+    BulletTriangleMeshShape,
+)
+from engine.config import get as engine_config_get
+from world.map_adapter import load_map_to_voxels
+from world.chunks import ChunkIndex
+from render.chunk_mesher import ChunkMesher
 # ---------- Config ----------
 def load_config(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
@@ -70,6 +82,8 @@ class LaserTagServer:
         map_file = map_cfg.get("file")
         if not isinstance(map_file, str) or not map_file:
             raise ValueError("Configuration must provide 'map.file' with a valid JSON map path")
+
+        self.map_file = map_file
 
         try:
             self.mapdata = load_map_from_file(map_file)
@@ -189,51 +203,192 @@ class LaserTagServer:
         self.ecs.add_component(entity, CollisionBody(node=node, nodepath=np, tag=tag))
         return np
 
+    def _attach_chunk_mesh(
+        self,
+        triangles: List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]],
+        key: Tuple[int, int, int],
+    ) -> Tuple[NodePath, int, int]:
+        mesh = BulletTriangleMesh()
+        min_v = [float("inf"), float("inf"), float("inf")]
+        max_v = [float("-inf"), float("-inf"), float("-inf")]
+        for tri in triangles:
+            v0, v1, v2 = tri
+            mesh.addTriangle(Point3(*v0), Point3(*v1), Point3(*v2))
+            for vx, vy, vz in tri:
+                if vx < min_v[0]:
+                    min_v[0] = vx
+                if vy < min_v[1]:
+                    min_v[1] = vy
+                if vz < min_v[2]:
+                    min_v[2] = vz
+                if vx > max_v[0]:
+                    max_v[0] = vx
+                if vy > max_v[1]:
+                    max_v[1] = vy
+                if vz > max_v[2]:
+                    max_v[2] = vz
+
+        shape = BulletTriangleMeshShape(mesh, dynamic=False)
+        tag = f"chunk_{key[0]}_{key[1]}_{key[2]}"
+        node = BulletRigidBodyNode(tag)
+        node.addShape(shape)
+        node.setMass(0.0)
+        node.setIntoCollideMask(MASK_SOLID)
+        np = self._root.attachNewNode(node)
+        self.world.attachRigidBody(node)
+        np.setPythonTag("kind", "chunk")
+        np.setPythonTag("chunk_key", key)
+        np.setPythonTag("tag", tag)
+        self._static_nodes.append(np)
+
+        entity = self.ecs.create_entity()
+        self.map_entities.append(entity)
+        center = (
+            (min_v[0] + max_v[0]) * 0.5,
+            (min_v[1] + max_v[1]) * 0.5,
+            (min_v[2] + max_v[2]) * 0.5,
+        )
+        self.ecs.add_component(entity, Position(x=center[0], y=center[1], z=center[2]))
+        self.ecs.add_component(entity, CollisionBody(node=node, nodepath=np, tag=tag))
+
+        faces = len(triangles) // 2
+        vertices = len(triangles) * 3
+        return np, faces, vertices
+
+    def _chunk_size_from_config(self) -> Tuple[int, int, int]:
+        cfg = engine_config_get("world.chunking.size", [16, 16, 16])
+        if not isinstance(cfg, (list, tuple)) or len(cfg) != 3:
+            return (16, 16, 16)
+        out: List[int] = []
+        for value in cfg:
+            try:
+                out.append(max(1, int(value)))
+            except Exception:
+                out.append(16)
+        return tuple(out[:3])
+
+    def _voxel_origin_indices(self, cube_size: float) -> Tuple[int, int, int]:
+        origin = [0, 0, 0]
+        first = True
+        for block in self.mapdata.blocks:
+            indices = []
+            for axis in range(3):
+                idx = int(round((block.pos[axis] - 0.5 * cube_size) / cube_size))
+                indices.append(idx)
+            if first:
+                origin = indices
+                first = False
+            else:
+                for axis in range(3):
+                    if indices[axis] < origin[axis]:
+                        origin[axis] = indices[axis]
+        return tuple(origin)
+
+    def _build_chunk_colliders(self) -> Optional[Tuple[int, int, int]]:
+        try:
+            grid, registry = load_map_to_voxels(self.map_file)
+        except Exception as exc:
+            print(f"[perf] chunk colliders disabled (load failure): {exc}")
+            return None
+
+        chunk_size = self._chunk_size_from_config()
+        cube_size = float(getattr(self.mapdata, "cube_size", 1.0) or 1.0)
+        origin_indices = self._voxel_origin_indices(cube_size)
+        chunk_index = ChunkIndex(grid, chunk_size=chunk_size)
+        mesher = ChunkMesher(registry, use_atlas=False, cube_size=cube_size)
+
+        chunk_count = 0
+        total_faces = 0
+        total_vertices = 0
+
+        for key in chunk_index.iter_chunk_keys():
+            blocks: List[Tuple[int, int, int, int]] = []
+            for x, y, z, block_id in chunk_index.iter_blocks_in_chunk(key):
+                wx = x + origin_indices[0]
+                wy = y + origin_indices[1]
+                wz = z + origin_indices[2]
+                blocks.append((wx, wy, wz, block_id))
+            if not blocks:
+                continue
+
+            (start_x, start_y, start_z), _ = chunk_index.world_bounds_in_chunk(key)
+            chunk_origin = (
+                start_x + origin_indices[0],
+                start_y + origin_indices[1],
+                start_z + origin_indices[2],
+            )
+
+            triangles: List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]] = []
+            mesher.build_geomnode(blocks, chunk_origin, chunk_size, triangles_out=triangles)
+            if not triangles:
+                continue
+
+            _, faces, verts = self._attach_chunk_mesh(triangles, (key.x, key.y, key.z))
+            chunk_count += 1
+            total_faces += faces
+            total_vertices += verts
+
+        if chunk_count == 0:
+            return None
+
+        return (chunk_count, total_faces, total_vertices)
+
     def _build_static_world(self):
         size_x, size_z = self.cfg["gameplay"]["arena_size_m"]
 
         # Floor slab (top at z=0). Make it thick to be safe.
         self._attach_static_box((0.0, 0.0, -2.5), (size_x, size_z, 5.0), "floor")
 
-        # Procedural blocks → merged static boxes
-        count_blocks = 0
-        try:
-            from game.collider_merge import build_merged_colliders
-            merge_mode = str(self.cfg.get("server", {}).get("collider_merge", "stack"))
-        except Exception:
-            build_merged_colliders = None  # type: ignore
-            merge_mode = "none"
+        chunking_enabled = bool(engine_config_get("world.chunking.enabled", False))
+        chunk_summary: Optional[Tuple[int, int, int]] = None
+        if chunking_enabled:
+            chunk_summary = self._build_chunk_colliders()
+            if chunk_summary is None:
+                chunking_enabled = False
 
-        colliders = None
-        if build_merged_colliders is not None and merge_mode.lower() != "none":
-            try:
-                strategy = "level" if merge_mode.lower().startswith("level") else "stack"
-                colliders = build_merged_colliders(self.mapdata, strategy=strategy)
-            except Exception as e:
-                print(f"[server] collider merge failed ({e}); falling back to per-cube")
-                colliders = None
-
-        if colliders is None:
-            # Fallback: one collider per cube
-            for i, b in enumerate(self.mapdata.blocks):
-                cx, cy, cz = b.pos
-                sx, sy, sz = b.size
-                self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"block_{i}")
-                count_blocks += 1
-            try:
-                print(f"[server] static world: {count_blocks} block colliders attached (unmerged)")
-            except Exception:
-                pass
+        if chunking_enabled and chunk_summary is not None:
+            chunks, faces, verts = chunk_summary
+            print(f"[perf] chunk colliders built chunks={chunks} faces={faces} vertices={verts}")
         else:
-            for i, b in enumerate(colliders):
-                cx, cy, cz = b.pos
-                sx, sy, sz = b.size
-                self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"blkM_{i}")
-                count_blocks += 1
+            # Procedural blocks → merged static boxes
+            count_blocks = 0
             try:
-                print(f"[server] static world: {count_blocks} merged colliders attached (mode={merge_mode})")
+                from game.collider_merge import build_merged_colliders
+                merge_mode = str(self.cfg.get("server", {}).get("collider_merge", "stack"))
             except Exception:
-                pass
+                build_merged_colliders = None  # type: ignore
+                merge_mode = "none"
+
+            colliders = None
+            if build_merged_colliders is not None and merge_mode.lower() != "none":
+                try:
+                    strategy = "level" if merge_mode.lower().startswith("level") else "stack"
+                    colliders = build_merged_colliders(self.mapdata, strategy=strategy)
+                except Exception as e:
+                    print(f"[server] collider merge failed ({e}); falling back to per-cube")
+                    colliders = None
+
+            if colliders is None:
+                # Fallback: one collider per cube
+                for i, b in enumerate(self.mapdata.blocks):
+                    cx, cy, cz = b.pos
+                    sx, sy, sz = b.size
+                    self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"block_{i}")
+                    count_blocks += 1
+                try:
+                    print(f"[server] static world: {count_blocks} block colliders attached (unmerged)")
+                except Exception:
+                    pass
+            else:
+                for i, b in enumerate(colliders):
+                    cx, cy, cz = b.pos
+                    sx, sy, sz = b.size
+                    self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"blkM_{i}")
+                    count_blocks += 1
+                try:
+                    print(f"[server] static world: {count_blocks} merged colliders attached (mode={merge_mode})")
+                except Exception:
+                    pass
 
         # Arena walls (thin boxes)
         wall_t = 0.5

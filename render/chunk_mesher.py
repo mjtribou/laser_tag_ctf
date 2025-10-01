@@ -1,7 +1,7 @@
 """Chunk meshing helpers to emit Panda3D geometry per chunk."""
 from __future__ import annotations
 
-from typing import Dict, Iterable, Tuple
+from typing import Dict, Iterable, List, Optional, Tuple
 
 from panda3d.core import (
     Geom,
@@ -70,6 +70,7 @@ class ChunkMesher:
         chunk_blocks_iter: Iterable[Tuple[int, int, int, int]],
         chunk_origin_xyz: Tuple[int, int, int],
         chunk_size_xyz: Tuple[int, int, int],
+        triangles_out: Optional[List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]]] = None,
     ) -> NodePath:
         """Emit a `GeomNode` containing only the exposed faces for this chunk."""
         block_map = self._build_block_map(chunk_blocks_iter)
@@ -88,6 +89,7 @@ class ChunkMesher:
             float(chunk_origin_xyz[1]) * self._scale,
             float(chunk_origin_xyz[2]) * self._scale,
         )
+        chunk_origin_world = (ox, oy, oz)
 
         vertex_index = 0
         for (wx, wy, wz), block_id in block_map.items():
@@ -105,6 +107,7 @@ class ChunkMesher:
                 nz = wz + face_dir[2]
                 if (nx, ny, nz) in block_map:
                     continue
+                verts_world: List[Tuple[float, float, float]] = []
                 for (dx, dy, dz), uv in zip(offsets, uv_set):
                     vx = local_base[0] + dx * self._scale
                     vy = local_base[1] + dy * self._scale
@@ -112,10 +115,16 @@ class ChunkMesher:
                     vwriter.addData3(vx, vy, vz)
                     nwriter.addData3(*normal)
                     twriter.addData2(*uv)
+                    verts_world.append((chunk_origin_world[0] + vx,
+                                         chunk_origin_world[1] + vy,
+                                         chunk_origin_world[2] + vz))
                 prim.addVertices(vertex_index, vertex_index + 1, vertex_index + 2)
                 prim.closePrimitive()
                 prim.addVertices(vertex_index, vertex_index + 2, vertex_index + 3)
                 prim.closePrimitive()
+                if triangles_out is not None:
+                    triangles_out.append((verts_world[0], verts_world[1], verts_world[2]))
+                    triangles_out.append((verts_world[0], verts_world[2], verts_world[3]))
                 vertex_index += 4
 
         if prim.getNumPrimitives() == 0:
@@ -129,6 +138,7 @@ class ChunkMesher:
             node.setTexture(self._TEXTURE_STAGE, self._atlas_texture, 1)
             if self._material is not None:
                 node.setMaterial(self._material, 1)
+        node.setPos(*chunk_origin_world)
         return node
 
     def _uvs_for_block(self, block_id: int) -> Tuple[Tuple[float, float], ...]:
