@@ -933,7 +933,22 @@ class GameApp(ShowBase):
         use_atlas = bool(engine_config_get("world.texture_atlas.enabled", False))
 
         chunk_index = ChunkIndex(grid, chunk_size=chunk_size)
-        mesher = ChunkMesher(block_registry, use_atlas, cube_size=cube_size)
+
+        atlas_texture = None
+        atlas_meta = {}
+        if use_atlas:
+            atlas_texture, atlas_meta = self._load_atlas_assets()
+            if atlas_texture is None or not atlas_meta:
+                print("[perf] chunking atlas disabled (missing texture or meta)")
+                use_atlas = False
+
+        mesher = ChunkMesher(
+            block_registry,
+            use_atlas,
+            cube_size=cube_size,
+            atlas_meta=atlas_meta,
+            atlas_texture=atlas_texture,
+        )
         chunk_root = self.render.attachNewNode("world_chunks")
 
         total_faces = 0
@@ -1003,6 +1018,40 @@ class GameApp(ShowBase):
             except Exception:
                 out.append(16)
         return tuple(out[:3])
+
+    def _load_atlas_assets(self):
+        path = engine_config_get("world.texture_atlas.path", "assets/atlas/atlas.png")
+        meta_path = engine_config_get("world.texture_atlas.meta", "assets/atlas/atlas_meta.json")
+
+        texture = None
+        try:
+            texture = self.loader.loadTexture(path)
+        except Exception as exc:
+            print(f"[perf] chunking atlas texture load failed: {exc}")
+
+        meta = {}
+        try:
+            with open(meta_path, "r", encoding="utf-8") as handle:
+                raw = json.load(handle)
+            if isinstance(raw, dict):
+                for name, coords in raw.items():
+                    try:
+                        if isinstance(coords, dict):
+                            u0 = float(coords.get("u0", 0.0))
+                            v0 = float(coords.get("v0", 0.0))
+                            u1 = float(coords.get("u1", 1.0))
+                            v1 = float(coords.get("v1", 1.0))
+                        elif isinstance(coords, (list, tuple)) and len(coords) == 4:
+                            u0, v0, u1, v1 = map(float, coords)
+                        else:
+                            continue
+                        meta[str(name)] = (u0, v0, u1, v1)
+                    except Exception:
+                        continue
+        except Exception as exc:
+            print(f"[perf] chunking atlas meta load failed: {exc}")
+
+        return texture, meta
 
     def _voxel_origin_indices(self, cube_size: float) -> Tuple[int, int, int]:
         origin = [0, 0, 0]
