@@ -70,6 +70,7 @@ from common.net import send_json, read_json, lan_discovery_broadcast
 from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL
 from scoreboard import Scoreboard
 from game.map_gen import load_from_file as load_map_from_file
+from tools import perf_dump
 
 # ========== Cosmetics Manager ==========
 class CosmeticsManager:
@@ -900,6 +901,8 @@ class GameApp(ShowBase):
 
         # optional: a small heartbeat so you can see snapshots arriving
         self._last_state_log = 0.0
+
+        perf_dump.maybe_dump(self)
 
     def center_mouse(self):
         wp = WindowProperties()
