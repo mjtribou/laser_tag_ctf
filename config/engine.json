@@ -1,13 +1,14 @@
 {
   "world": {
     "chunking": {
-      "enabled": false,
+      "enabled": true,
       "size": [16, 16, 16],
-      "greedy": true
+      "greedy": true,
+      "update_hz": 8.0
     },
     "render_distance_chunks": 8,
     "texture_atlas": {
-      "enabled": false,
+      "enabled": true,
       "path": "assets/atlas/atlas.png",
       "meta": "assets/atlas/atlas_meta.json"
     }
