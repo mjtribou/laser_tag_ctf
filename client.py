@@ -1,6 +1,6 @@
 # client.py
 import sys, asyncio, json, time, math, argparse, threading, random, os
-from typing import Dict, Any, List, Tuple
+from typing import Dict, Any, List, Tuple, Optional
 from bisect import bisect, bisect_right
 
 from direct.showbase.ShowBase import ShowBase
@@ -73,7 +73,8 @@ from game.map_gen import load_from_file as load_map_from_file
 from engine.config import get as engine_config_get
 from tools import perf_dump
 from world.map_adapter import load_map_to_voxels
-from world.chunks import ChunkIndex
+from world.chunks import ChunkIndex, ChunkKey
+from world.chunk_manager import WorldChunkManager
 from render.chunk_mesher import ChunkMesher
 
 # ========== Cosmetics Manager ==========
@@ -566,6 +567,7 @@ class GameApp(ShowBase):
             self.cube_template = None
 
         self.world_chunks_np = None
+        self.chunk_manager: Optional[WorldChunkManager] = None
         self._chunking_enabled = bool(engine_config_get("world.chunking.enabled", False))
         if self._chunking_enabled:
             if not self._build_chunked_world(map_file):
@@ -951,6 +953,25 @@ class GameApp(ShowBase):
         )
         chunk_root = self.render.attachNewNode("world_chunks")
 
+        try:
+            render_distance = int(engine_config_get("world.render_distance_chunks", 8))
+        except Exception:
+            render_distance = 8
+        try:
+            update_hz = float(engine_config_get("world.chunking.update_hz", 8.0))
+        except Exception:
+            update_hz = 8.0
+
+        manager = WorldChunkManager(
+            chunk_root,
+            chunk_size=chunk_size,
+            cube_size=cube_size,
+            origin_indices=origin_indices,
+            render_distance=render_distance,
+            bullet_world=None,
+            tick_hz=update_hz,
+        )
+
         total_faces = 0
         total_vertices = 0
         chunk_count = 0
@@ -977,7 +998,7 @@ class GameApp(ShowBase):
             if geom_node.getNumGeoms() == 0:
                 continue
 
-            node.reparentTo(chunk_root)
+            manager.register_chunk(ChunkKey(key.x, key.y, key.z), node)
             chunk_count += 1
 
             node_triangles = 0
@@ -1000,10 +1021,14 @@ class GameApp(ShowBase):
             return False
 
         self.world_chunks_np = chunk_root
-        visible_nodes = chunk_root.getNumChildren()
+        self.chunk_manager = manager
+
+        focus = self.camera.getPos(self.render)
+        manager.update((focus.x, focus.y, focus.z), time.time(), force=True)
+        active_nodes = manager.active_render_count
         print(
             f"[perf] chunking built chunks={chunk_count} faces={total_faces} "
-            f"vertices={total_vertices} nodes={visible_nodes}"
+            f"vertices={total_vertices} nodes={active_nodes}/{manager.total_chunks}"
         )
         return True
 
@@ -1931,6 +1956,13 @@ class GameApp(ShowBase):
                     ping = int(me.get("ping", 0)) if me else 0
                 snaps = len(self.snapshots)
                 self._netgraph.setText(f"ping: {ping} ms\nsnaps: {snaps}\nrt: {self.render_time:.2f}")
+            except Exception:
+                pass
+
+        if self._chunking_enabled and self.chunk_manager is not None:
+            try:
+                focus = self.camera.getPos(self.render)
+                self.chunk_manager.update((focus.x, focus.y, focus.z))
             except Exception:
                 pass
         return task.cont
