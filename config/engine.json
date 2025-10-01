@@ -1,0 +1,14 @@
+{
+  "world": {
+    "chunking": {
+      "enabled": false,
+      "size": [16, 16, 16]
+    },
+    "render_distance_chunks": 8,
+    "texture_atlas": {
+      "enabled": false,
+      "path": "assets/atlas/atlas.png",
+      "meta": "assets/atlas/atlas_meta.json"
+    }
+  }
+}
