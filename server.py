@@ -295,7 +295,14 @@ class LaserTagServer:
         cube_size = float(getattr(self.mapdata, "cube_size", 1.0) or 1.0)
         origin_indices = self._voxel_origin_indices(cube_size)
         chunk_index = ChunkIndex(grid, chunk_size=chunk_size)
-        mesher = ChunkMesher(registry, use_atlas=False, cube_size=cube_size)
+
+        greedy_cfg = engine_config_get("world.chunking.greedy", False)
+        if isinstance(greedy_cfg, str):
+            greedy_enabled = greedy_cfg.strip().lower() not in ("", "0", "false", "no")
+        else:
+            greedy_enabled = bool(greedy_cfg)
+
+        mesher = ChunkMesher(registry, use_atlas=False, cube_size=cube_size, greedy=greedy_enabled)
 
         chunk_count = 0
         total_faces = 0

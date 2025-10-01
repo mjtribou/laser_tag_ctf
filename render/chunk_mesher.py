@@ -14,6 +14,11 @@ from panda3d.core import (
     Texture,
     TextureStage,
     Material,
+    MaterialAttrib,
+    TextureAttrib,
+    CullFaceAttrib,
+    TransparencyAttrib,
+    RenderState,
 )
 
 from world.map_adapter import BlockDef
@@ -59,12 +64,16 @@ class ChunkMesher:
             mat.setDiffuse((1, 1, 1, 1))
             mat.setAmbient((1, 1, 1, 1))
             self._material = mat
-        self.greedy = bool(greedy)
+        self.greedy = bool(greedy) and not self.use_atlas
+        self._render_state = self._build_render_state()
 
     def _build_block_map(self, chunk_blocks_iter: Iterable[Tuple[int, int, int, int]]) -> Dict[Tuple[int, int, int], int]:
         block_map: Dict[Tuple[int, int, int], int] = {}
         for x, y, z, block_id in chunk_blocks_iter:
-            block_map[(int(x), int(y), int(z))] = int(block_id)
+            bid = int(block_id)
+            if not self._is_opaque(bid):
+                continue
+            block_map[(int(x), int(y), int(z))] = bid
         return block_map
 
     def build_geomnode(
@@ -122,10 +131,7 @@ class ChunkMesher:
         geom.addPrimitive(prim)
         geom_node.addGeom(geom)
         node = NodePath(geom_node)
-        if self.use_atlas and self._atlas_texture is not None:
-            node.setTexture(self._TEXTURE_STAGE, self._atlas_texture, 1)
-            if self._material is not None:
-                node.setMaterial(self._material, 1)
+        node.setState(self._render_state)
         node.setPos(*chunk_origin_world)
         return node
 
@@ -382,6 +388,18 @@ class ChunkMesher:
                 )
         return vertex_index
 
+    def _build_render_state(self) -> RenderState:
+        attribs = []
+        attribs.append(CullFaceAttrib.make(CullFaceAttrib.MCullCounterClockwise))
+        attribs.append(TransparencyAttrib.make(TransparencyAttrib.M_none))
+        if self._material is not None:
+            attribs.append(MaterialAttrib.make(self._material))
+        if self.use_atlas and self._atlas_texture is not None:
+            tex_attr = TextureAttrib.make()
+            tex_attr = tex_attr.add_on_stage(self._TEXTURE_STAGE, self._atlas_texture)
+            attribs.append(tex_attr)
+        return RenderState.make(*attribs)
+
     def _write_face(
         self,
         verts_local: List[Tuple[float, float, float]],
@@ -436,3 +454,9 @@ class ChunkMesher:
         uv_set = ((u0, v0), (u1, v0), (u1, v1), (u0, v1))
         self._uv_cache[block_id] = uv_set
         return uv_set
+
+    def _is_opaque(self, block_id: int) -> bool:
+        block = self.block_registry.get(block_id)
+        if block is None:
+            return True
+        return getattr(block, "opaque", True)

@@ -13,6 +13,7 @@ from world.voxel_grid import VoxelGrid
 class BlockDef:
     material: str
     atlas_tile: str
+    opaque: bool = True
 
 
 BlockRegistry = Dict[int, BlockDef]
@@ -72,7 +73,7 @@ def load_map_to_voxels(json_path: str) -> Tuple[VoxelGrid, BlockRegistry]:
         grid.set(ix - min_bounds[0], iy - min_bounds[1], iz - min_bounds[2], block_id)
 
     registry: BlockRegistry = {
-        block_id: BlockDef(material="stone", atlas_tile="stone")
+        block_id: BlockDef(material="stone", atlas_tile="stone", opaque=True)
     }
 
     # Sanity: ensure counts align with authored cube total.
