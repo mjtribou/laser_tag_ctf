@@ -1,7 +1,6 @@
 """Chunk meshing helpers to emit Panda3D geometry per chunk."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Dict, Iterable, Tuple
 
 from panda3d.core import (
@@ -14,10 +13,7 @@ from panda3d.core import (
     NodePath,
 )
 
-@dataclass(frozen=True)
-class BlockDef:
-    material: str
-    atlas_tile: str
+from world.map_adapter import BlockDef
 
 
 class ChunkMesher:
@@ -35,10 +31,11 @@ class ChunkMesher:
         ((0, 0, -1), ((0, 0, 0), (0, 1, 0), (1, 1, 0), (1, 0, 0)), (0, 0, -1)),
     )
 
-    def __init__(self, block_registry: Dict[int, BlockDef], use_atlas: bool) -> None:
+    def __init__(self, block_registry: Dict[int, BlockDef], use_atlas: bool, cube_size: float = 1.0) -> None:
         self.block_registry = block_registry
         self.use_atlas = bool(use_atlas)
         self._format = GeomVertexFormat.getV3n3t2()
+        self._scale = float(cube_size) if cube_size else 1.0
 
     def _build_block_map(self, chunk_blocks_iter: Iterable[Tuple[int, int, int, int]]) -> Dict[Tuple[int, int, int], int]:
         block_map: Dict[Tuple[int, int, int], int] = {}
@@ -64,13 +61,21 @@ class ChunkMesher:
         twriter = GeomVertexWriter(vdata, "texcoord")
         prim = GeomTriangles(Geom.UHStatic)
 
-        ox, oy, oz = (float(chunk_origin_xyz[0]), float(chunk_origin_xyz[1]), float(chunk_origin_xyz[2]))
+        ox, oy, oz = (
+            float(chunk_origin_xyz[0]) * self._scale,
+            float(chunk_origin_xyz[1]) * self._scale,
+            float(chunk_origin_xyz[2]) * self._scale,
+        )
 
         vertex_index = 0
         for (wx, wy, wz), block_id in block_map.items():
             if block_id == 0:
                 continue
-            local_base = (float(wx) - ox, float(wy) - oy, float(wz) - oz)
+            local_base = (
+                float(wx) * self._scale - ox,
+                float(wy) * self._scale - oy,
+                float(wz) * self._scale - oz,
+            )
             for face_dir, offsets, normal in self._face_defs:
                 nx = wx + face_dir[0]
                 ny = wy + face_dir[1]
@@ -78,9 +83,9 @@ class ChunkMesher:
                 if (nx, ny, nz) in block_map:
                     continue
                 for (dx, dy, dz), uv in zip(offsets, self._uvs):
-                    vx = local_base[0] + dx
-                    vy = local_base[1] + dy
-                    vz = local_base[2] + dz
+                    vx = local_base[0] + dx * self._scale
+                    vy = local_base[1] + dy * self._scale
+                    vz = local_base[2] + dz * self._scale
                     vwriter.addData3(vx, vy, vz)
                     nwriter.addData3(*normal)
                     twriter.addData2(*uv)

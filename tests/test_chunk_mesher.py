@@ -1,4 +1,5 @@
-from render.chunk_mesher import BlockDef, ChunkMesher
+from render.chunk_mesher import ChunkMesher
+from world.map_adapter import BlockDef
 
 
 def _collect_triangles(node):
@@ -13,7 +14,7 @@ def _collect_triangles(node):
 
 
 def test_single_cube_produces_six_quads():
-    mesher = ChunkMesher({1: BlockDef("stone", "stone")}, use_atlas=False)
+    mesher = ChunkMesher({1: BlockDef("stone", "stone")}, use_atlas=False, cube_size=1.0)
     node = mesher.build_geomnode([(1, 1, 1, 1)], (0, 0, 0), (3, 3, 3))
     tri_count = _collect_triangles(node)
     assert tri_count == 12
@@ -26,7 +27,7 @@ def test_solid_three_cube_only_shell():
         for y in range(3):
             for z in range(3):
                 blocks.append((x, y, z, 1))
-    mesher = ChunkMesher({1: BlockDef("stone", "stone")}, use_atlas=False)
+    mesher = ChunkMesher({1: BlockDef("stone", "stone")}, use_atlas=False, cube_size=1.0)
     node = mesher.build_geomnode(blocks, (0, 0, 0), (3, 3, 3))
     tri_count = _collect_triangles(node)
     # Surface area of 3x3x3 cube: 6 faces * 3*3 quads each = 54 quads = 108 triangles

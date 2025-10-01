@@ -70,7 +70,11 @@ from common.net import send_json, read_json, lan_discovery_broadcast
 from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL
 from scoreboard import Scoreboard
 from game.map_gen import load_from_file as load_map_from_file
+from engine.config import get as engine_config_get
 from tools import perf_dump
+from world.map_adapter import load_map_to_voxels
+from world.chunks import ChunkIndex
+from render.chunk_mesher import ChunkMesher
 
 # ========== Cosmetics Manager ==========
 class CosmeticsManager:
@@ -561,6 +565,12 @@ class GameApp(ShowBase):
             print(f"[obstacles] Failed to load models/cube.glb: {e}")
             self.cube_template = None
 
+        self.world_chunks_np = None
+        self._chunking_enabled = bool(engine_config_get("world.chunking.enabled", False))
+        if self._chunking_enabled:
+            if not self._build_chunked_world(map_file):
+                self._chunking_enabled = False
+
         def _tile_pair_from(val, grid):
             # Accept either a single index or a [tx,ty] pair
             try:
@@ -678,7 +688,7 @@ class GameApp(ShowBase):
                                 rdr_uv.setRow(idx); u,v = rdr_uv.getData2f()
                                 wtr_uv.setRow(idx); wtr_uv.setData2f(off_u + u*tile_w, off_v + v*tile_h)
 
-        if self.cube_template is not None:
+        if (not self._chunking_enabled) and self.cube_template is not None:
             # Pre-bake a small set of variants (0..3) by remapping UVs once per type,
             # then instance those variants for each block. This avoids rewriting
             # vertex data for every single block.
@@ -909,6 +919,107 @@ class GameApp(ShowBase):
         wp.setCursorHidden(True)
         self.win.requestProperties(wp)
         self.mouse_locked = True
+
+    def _build_chunked_world(self, map_file: str) -> bool:
+        try:
+            grid, block_registry = load_map_to_voxels(map_file)
+        except Exception as exc:
+            print(f"[perf] chunking disabled (load failure): {exc}")
+            return False
+
+        chunk_size = self._chunk_size_from_config()
+        cube_size = float(getattr(self.mapdata, "cube_size", 1.0) or 1.0)
+        origin_indices = self._voxel_origin_indices(cube_size)
+        use_atlas = bool(engine_config_get("world.texture_atlas.enabled", False))
+
+        chunk_index = ChunkIndex(grid, chunk_size=chunk_size)
+        mesher = ChunkMesher(block_registry, use_atlas, cube_size=cube_size)
+        chunk_root = self.render.attachNewNode("world_chunks")
+
+        total_faces = 0
+        total_vertices = 0
+        chunk_count = 0
+
+        for key in chunk_index.iter_chunk_keys():
+            blocks = []
+            for x, y, z, block_id in chunk_index.iter_blocks_in_chunk(key):
+                wx = x + origin_indices[0]
+                wy = y + origin_indices[1]
+                wz = z + origin_indices[2]
+                blocks.append((wx, wy, wz, block_id))
+            if not blocks:
+                continue
+
+            (start_x, start_y, start_z), _ = chunk_index.world_bounds_in_chunk(key)
+            chunk_origin = (
+                start_x + origin_indices[0],
+                start_y + origin_indices[1],
+                start_z + origin_indices[2],
+            )
+
+            node = mesher.build_geomnode(blocks, chunk_origin, chunk_size)
+            geom_node = node.node()
+            if geom_node.getNumGeoms() == 0:
+                continue
+
+            node.reparentTo(chunk_root)
+            chunk_count += 1
+
+            node_triangles = 0
+            node_vertices = 0
+            for gi in range(geom_node.getNumGeoms()):
+                geom = geom_node.getGeom(gi)
+                vdata = geom.getVertexData()
+                if vdata is not None:
+                    node_vertices += vdata.getNumRows()
+                for pi in range(geom.getNumPrimitives()):
+                    prim = geom.getPrimitive(pi)
+                    node_triangles += prim.getNumPrimitives()
+
+            total_faces += node_triangles // 2
+            total_vertices += node_vertices
+
+        if chunk_count == 0:
+            chunk_root.removeNode()
+            print("[perf] chunking disabled (empty chunks)")
+            return False
+
+        self.world_chunks_np = chunk_root
+        visible_nodes = chunk_root.getNumChildren()
+        print(
+            f"[perf] chunking built chunks={chunk_count} faces={total_faces} "
+            f"vertices={total_vertices} nodes={visible_nodes}"
+        )
+        return True
+
+    def _chunk_size_from_config(self) -> Tuple[int, int, int]:
+        cfg = engine_config_get("world.chunking.size", [16, 16, 16])
+        if not isinstance(cfg, (list, tuple)) or len(cfg) != 3:
+            return (16, 16, 16)
+        out = []
+        for value in cfg:
+            try:
+                out.append(max(1, int(value)))
+            except Exception:
+                out.append(16)
+        return tuple(out[:3])
+
+    def _voxel_origin_indices(self, cube_size: float) -> Tuple[int, int, int]:
+        origin = [0, 0, 0]
+        first = True
+        for block in self.mapdata.blocks:
+            indices = []
+            for axis in range(3):
+                idx = int(round((block.pos[axis] - 0.5 * cube_size) / cube_size))
+                indices.append(idx)
+            if first:
+                origin = indices
+                first = False
+            else:
+                for axis in range(3):
+                    if indices[axis] < origin[axis]:
+                        origin[axis] = indices[axis]
+        return tuple(origin)
 
     # --- Snapshot buffering & ingestion ---------------------------------
 
