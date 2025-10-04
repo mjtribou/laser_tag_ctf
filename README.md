@@ -6,7 +6,7 @@ Authoritative, server-driven capture-the-flag arena built on Panda3D + Bullet. S
 - **Authoritative server loop** at 60 Hz with JSON-over-TCP clients and UDP LAN discovery.
 - **Entity-component systems** (`game/ecs`) drive player input, movement, combat, collisions, and flag state; legacy views expose the same API to existing client/bot code.
 - **Hitscan combat** with Bullet ray occlusion, recoil/spread tuning, killfeed, ragdoll corpses, and beam replication.
-- **Authored map pipeline** (JSON + CSG) feeding chunk meshes and merged colliders; neutral-flag CTF by default and classic two-flag when stands are present.
+- **Authored map pipeline** (JSON + CSG) feeding chunk meshes and merged colliders; single neutral-flag CTF out of the box.
 - **Bot fill and HUD**: A* navigation bots keep lobbies full, live scoreboard (Tab) shows team captures, ping, tags, outs, captures, defences.
 - **Config driven**: tweak gameplay, physics, visuals, controls, audio, and server limits through `configs/defaults.json` (server) and `configs/client_settings.json` (client).
 

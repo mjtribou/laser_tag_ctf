@@ -110,23 +110,6 @@ class LaserTagServer:
                 "carried_by": None,
             }
         }
-        red_home = getattr(self.mapdata, "red_flag_stand", None)
-        blue_home = getattr(self.mapdata, "blue_flag_stand", None)
-        if red_home is not None:
-            self._flag_initial[TEAM_RED] = {
-                "position": red_home,
-                "at_base": True,
-                "carried_by": None,
-                "home_position": red_home,
-            }
-        if blue_home is not None:
-            self._flag_initial[TEAM_BLUE] = {
-                "position": blue_home,
-                "at_base": True,
-                "carried_by": None,
-                "home_position": blue_home,
-            }
-
         # Legacy views backed by ECS components
         self.player_views: Dict[int, PlayerView] = {}
         self.flag_views: Dict[int, FlagView] = {}
