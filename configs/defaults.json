@@ -5,7 +5,6 @@
     "lan_discovery_port": 50000,
     "tick_hz": 60,
     "snapshot_hz": 30,
-    "max_players": 10,
     "captures_to_win": 3,
     "respawn_seconds": 1,
     "flag_return_seconds": 10,
@@ -70,12 +69,6 @@
       0.92,
       0.25,
       1.0
-    ],
-    "world_neutral": [
-      0.6,
-      0.6,
-      0.6,
-      1.0
     ]
   },
   "laser_visual": {
@@ -103,24 +96,11 @@
   },
   "audio": {
     "volume": 0.7,
-    "muted": false,
-    "footsteps_on_run_only": true
+    "muted": false
   },
   "controls": {
     "mouse_sensitivity": 0.12,
-    "invert_y": false,
-    "keymap": {
-      "move_forward": "w",
-      "move_backward": "s",
-      "move_left": "a",
-      "move_right": "d",
-      "jump": "space",
-      "crouch": "control",
-      "walk": "shift",
-      "interact": "e",
-      "scoreboard": "tab",
-      "mute": "m"
-    }
+    "invert_y": false
   },
   "cosmetics": {
     "nameplates": {

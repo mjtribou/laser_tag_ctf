@@ -45,7 +45,7 @@ Additional preferences (FOV, HUD scale, audio, keybinds, etc.) can be set in `co
 - `Mouse` to aim, `LMB` fire, hold for continuous shots
 - `Tab` toggles the scoreboard, `M` mute
 
-Bindings and sensitivity are editable under `controls.keymap` in the server or client config.
+Mouse sensitivity, invert-Y, and similar controls tweaks live under `controls` in the config.
 
 ## Configuration Overview
 Key sections in `configs/defaults.json`:
