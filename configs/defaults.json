@@ -7,11 +7,11 @@
     "snapshot_hz": 30,
     "max_players": 10,
     "captures_to_win": 3,
-    "respawn_seconds": 5,
+    "respawn_seconds": 1,
     "flag_return_seconds": 10,
     "friendly_fire": false,
-    "bot_fill": true,
-    "bot_per_team_target": 5,
+    "bot_fill": false,
+    "bot_per_team_target": 0,
     "bots_target_players": true,
     "collider_merge": "level"
   },
@@ -52,61 +52,58 @@
   "map": {
     "file": "configs/maps/csg_showcase.json"
   },
-  "cubes": {
-    "size": 1.0,
-    "max_height": 5,
-    "fill_prob": 0.01,
-    "stack_prob": 0.55,
-    "symmetry": "even",
-    "spawn_clear_radius": 6
-  },
   "cube_atlas": {
-    "grid": [2, 2],
+    "grid": [
+      2,
+      2
+    ],
     "types": {
-      "0": { "all": 0 },
-      "1": { "all": 1, "top": 3 },
-      "2": { "all": 2 },
-      "3": { "all": 3 }
+      "0": {
+        "all": 0
+      },
+      "1": {
+        "all": 1,
+        "top": 3
+      },
+      "2": {
+        "all": 2
+      },
+      "3": {
+        "all": 3
+      }
     },
     "team_tint": {
       "enabled": true,
-      "intensity": 0.40,
+      "intensity": 0.4,
       "blend_width_m": 8.0
     }
   },
-  "bunkers": {
-    "file": "configs/bunkers.json",
-    "symmetry": "even",
-    "keepout_radius": 6.0,
-    "count_min": 128,
-    "count_max": 128
+  "colors": {
+    "team_red": [
+      0.85,
+      0.2,
+      0.1,
+      1.0
+    ],
+    "team_blue": [
+      0.15,
+      0.45,
+      0.95,
+      1.0
+    ],
+    "neutral_flag": [
+      1.0,
+      0.92,
+      0.25,
+      1.0
+    ],
+    "world_neutral": [
+      0.6,
+      0.6,
+      0.6,
+      1.0
+    ]
   },
-    "colors": {
-      "team_red": [
-        0.85,
-        0.2,
-        0.1,
-        1.0
-      ],
-      "team_blue": [
-        0.15,
-        0.45,
-        0.95,
-        1.0
-      ],
-      "neutral_flag": [
-        1.0,
-        0.92,
-        0.25,
-        1.0
-      ],
-      "world_neutral": [
-        0.6,
-        0.6,
-        0.6,
-        1.0
-      ]
-    },
   "laser_visual": {
     "projectile_speed_mps": 300.0,
     "streak_length_m": 3.0,

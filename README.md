@@ -6,7 +6,7 @@ Authoritative, server-driven capture-the-flag arena built on Panda3D + Bullet. S
 - **Authoritative server loop** at 60 Hz with JSON-over-TCP clients and UDP LAN discovery.
 - **Entity-component systems** (`game/ecs`) drive player input, movement, combat, collisions, and flag state; legacy views expose the same API to existing client/bot code.
 - **Hitscan combat** with Bullet ray occlusion, recoil/spread tuning, killfeed, ragdoll corpses, and beam replication.
-- **Procedural arena** generation (merged colliders, optional bunkers) with single neutral-flag CTF by default; supports classic two-flag when stands are present.
+- **Authored map pipeline** (JSON + CSG) feeding chunk meshes and merged colliders; neutral-flag CTF by default and classic two-flag when stands are present.
 - **Bot fill and HUD**: A* navigation bots keep lobbies full, live scoreboard (Tab) shows team captures, ping, tags, outs, captures, defences.
 - **Config driven**: tweak gameplay, physics, visuals, controls, audio, and server limits through `configs/defaults.json` (server) and `configs/client_settings.json` (client).
 
@@ -51,10 +51,10 @@ Bindings and sensitivity are editable under `controls.keymap` in the server or c
 Key sections in `configs/defaults.json`:
 - `server`: ports, tick/snapshot rates, bot behaviour, victory conditions
 - `gameplay`: movement speeds, acceleration, spread/recoil, grenade tuning, respawn timers
-- `cubes`/`bunkers`: procedural arena parameters and symmetry
+- `map`: select the arena layout JSON under `configs/maps/`
+- `cube_atlas`: fallback UV/tint settings when chunking is disabled
 - `colors`, `hud`, `audio`, `cosmetics`: team tinting, killfeed TTL, footsteps, nameplates
 - `ragdoll`, `laser_visual`: tweak knockback, beam rendering
-- `maps`: arena layout files under `configs/maps/`
 
 ### Map authoring
 Map JSON files now support constructive solid geometry style operations alongside simple axis-aligned blocks. Each entry inside `blocks` can be either a classic block with `pos`, `size`, and `box_type`, or an operation node with an `op` and nested `children`/`shapes`. Supported operations are `union`, `intersect`, and `subtract` (aliases: `add`, `merge`, `difference`, `minus`, `and`). Operations inherit the parent `box_type` by default, but any node can override it.
@@ -78,7 +78,7 @@ Clients mirror many of these options in `configs/client_settings.json` (video, a
 - `server.py` bootstraps Panda3D/Bullet, constructs the ECS world, spawns flags & players as entities, and runs pre/post physics systems each frame.
 - `game/ecs/` contains component definitions, the minimal ECS world, movement/combat/collision systems, snapshot serialization, and view facades for legacy code.
 - `common/net.py` handles LAN discovery (UDP broadcast) and TCP JSON streams.
-- `game/map_gen.py`, `game/bunkers.py`, and `game/collider_merge.py` generate the playable arena.
+- `world/map_adapter.py` and `game/collider_merge.py` bridge authored maps into voxel grids and merged colliders.
 - `game/bot_ai.py` supplies Simple and A* brains; the server updates them at 10 Hz and feeds decisions into `PlayerInput` components.
 - `client.py` renders the arena, handles input, interpolation, HUD (including `scoreboard.py`), and applies server snapshots.
 
@@ -93,7 +93,7 @@ laser_tag_ctf/
   game/
     ecs/                 # ECS components, systems, replication helpers
     bot_ai.py            # Simple & A* bot brains
-    map_gen.py           # Procedural arena + collider merging
+    map_gen.py           # Map data schema + JSON helpers
     constants.py         # Shared gameplay constants/enums
     transform.py         # Math helpers (angles, movement deltas)
     nav_grid.py          # Grid-building & pathfinding helpers for bots
