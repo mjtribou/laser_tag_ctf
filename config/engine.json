@@ -1,7 +1,6 @@
 {
   "world": {
     "chunking": {
-      "enabled": true,
       "size": [16, 16, 16],
       "greedy": true,
       "update_hz": 8.0

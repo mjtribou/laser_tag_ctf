@@ -12,8 +12,7 @@
     "friendly_fire": false,
     "bot_fill": false,
     "bot_per_team_target": 0,
-    "bots_target_players": true,
-    "collider_merge": "level"
+    "bots_target_players": true
   },
   "gameplay": {
     "run_speed": 7.0,
@@ -52,32 +51,6 @@
   },
   "map": {
     "file": "configs/maps/csg_showcase.json"
-  },
-  "cube_atlas": {
-    "grid": [
-      2,
-      2
-    ],
-    "types": {
-      "0": {
-        "all": 0
-      },
-      "1": {
-        "all": 1,
-        "top": 3
-      },
-      "2": {
-        "all": 2
-      },
-      "3": {
-        "all": 3
-      }
-    },
-    "team_tint": {
-      "enabled": true,
-      "intensity": 0.4,
-      "blend_width_m": 8.0
-    }
   },
   "colors": {
     "team_red": [

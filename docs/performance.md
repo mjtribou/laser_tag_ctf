@@ -12,7 +12,6 @@ Lasertag environments can contain tens of thousands of cubes. Instancing each cu
 
 Engine-side toggles live in `config/engine.json` and are read via `engine.config.get(...)`:
 
-- `world.chunking.enabled` — switch between legacy per-cube instancing and chunk meshing (`client.py:568`).
 - `world.chunking.size` — chunk dimensions in voxels; benchmark with `tools/bench_map_load.py`.
 - `world.render_distance_chunks` — how many chunk shells (Chebyshev metric) stay active (`world/chunk_manager.py:21`).
 - `world.chunking.update_hz` — debounce rate for chunk activation (default 8 Hz).

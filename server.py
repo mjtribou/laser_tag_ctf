@@ -274,12 +274,11 @@ class LaserTagServer:
                         origin[axis] = indices[axis]
         return tuple(origin)
 
-    def _build_chunk_colliders(self) -> Optional[Tuple[int, int, int]]:
+    def _build_chunk_colliders(self) -> Tuple[int, int, int]:
         try:
             grid, registry = load_map_to_voxels(self.map_file)
         except Exception as exc:
-            print(f"[perf] chunk colliders disabled (load failure): {exc}")
-            return None
+            raise RuntimeError(f"[perf] chunk collider build failed to load voxels: {exc}") from exc
 
         chunk_size = self._chunk_size_from_config()
         cube_size = float(getattr(self.mapdata, "cube_size", 1.0) or 1.0)
@@ -347,61 +346,14 @@ class LaserTagServer:
             total_vertices += verts
 
         if chunk_count == 0:
-            return None
+            raise RuntimeError("[perf] chunk collider build produced zero chunks")
 
         return (chunk_count, total_faces, total_vertices)
 
     def _build_static_world(self):
-        chunking_enabled = bool(engine_config_get("world.chunking.enabled", False))
-        chunk_summary: Optional[Tuple[int, int, int]] = None
-        if chunking_enabled:
-            chunk_summary = self._build_chunk_colliders()
-            if chunk_summary is None:
-                chunking_enabled = False
-
-        if chunking_enabled and chunk_summary is not None:
-            chunks, faces, verts = chunk_summary
-            print(f"[perf] chunk colliders built chunks={chunks} faces={faces} vertices={verts}")
-        else:
-            # Procedural blocks → merged static boxes
-            count_blocks = 0
-            try:
-                from game.collider_merge import build_merged_colliders
-                merge_mode = str(self.cfg.get("server", {}).get("collider_merge", "stack"))
-            except Exception:
-                build_merged_colliders = None  # type: ignore
-                merge_mode = "none"
-
-            colliders = None
-            if build_merged_colliders is not None and merge_mode.lower() != "none":
-                try:
-                    strategy = "level" if merge_mode.lower().startswith("level") else "stack"
-                    colliders = build_merged_colliders(self.mapdata, strategy=strategy)
-                except Exception as e:
-                    print(f"[server] collider merge failed ({e}); falling back to per-cube")
-                    colliders = None
-
-            if colliders is None:
-                # Fallback: one collider per cube
-                for i, b in enumerate(self.mapdata.blocks):
-                    cx, cy, cz = b.pos
-                    sx, sy, sz = b.size
-                    self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"block_{i}")
-                    count_blocks += 1
-                try:
-                    print(f"[server] static world: {count_blocks} block colliders attached (unmerged)")
-                except Exception:
-                    pass
-            else:
-                for i, b in enumerate(colliders):
-                    cx, cy, cz = b.pos
-                    sx, sy, sz = b.size
-                    self._attach_static_box((cx, cy, cz), (sx, sy, sz), f"blkM_{i}")
-                    count_blocks += 1
-                try:
-                    print(f"[server] static world: {count_blocks} merged colliders attached (mode={merge_mode})")
-                except Exception:
-                    pass
+        chunk_summary = self._build_chunk_colliders()
+        chunks, faces, verts = chunk_summary
+        print(f"[perf] chunk colliders built chunks={chunks} faces={faces} vertices={verts}")
 
     def _create_character(self, entity: int, pid: int, pos: Tuple[float, float, float], yaw_rad: float):
         """Create a kinematic character collider based on the configured shape."""

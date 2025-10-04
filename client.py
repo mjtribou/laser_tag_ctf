@@ -547,17 +547,6 @@ class GameApp(ShowBase):
         except Exception as e:
             print(f"[obstacles] simplepbr not active: {e}")
 
-        # Load cube.glb via python gltf loader
-        self.cube_template = None
-        try:
-            import gltf
-            self.cube_template = gltf.load_model("models/cube.glb")
-            if not hasattr(self.cube_template, 'findAllMatches'):
-                self.cube_template = NodePath(self.cube_template)
-        except Exception as e:
-            print(f"[obstacles] Failed to load models/cube.glb: {e}")
-            self.cube_template = None
-
         self.world_chunks_np = None
         self.chunk_manager: Optional[WorldChunkManager] = None
         self._chunk_debug_nodes: Dict[ChunkKey, NodePath] = {}
@@ -565,186 +554,8 @@ class GameApp(ShowBase):
         self._collider_debug_modes: Tuple[str, ...] = ("off", "wire", "solid")
         self._collider_debug_index: int = 0
         self._collider_debug_toggle_key: Optional[str] = None
-        self._chunking_enabled = bool(engine_config_get("world.chunking.enabled", False))
-        if self._chunking_enabled:
-            if not self._build_chunked_world(map_file):
-                self._chunking_enabled = False
+        self._build_chunked_world(map_file)
 
-        def _tile_pair_from(val, grid):
-            # Accept either a single index or a [tx,ty] pair
-            try:
-                if isinstance(val, (list, tuple)) and len(val) == 2:
-                    tx = int(val[0]); ty = int(val[1])
-                    return (max(0, min(grid[0]-1, tx)), max(0, min(grid[1]-1, ty)))
-            except Exception:
-                pass
-            try:
-                idx = int(val)
-            except Exception:
-                idx = 0
-            # Default 2x2 mapping
-            return (idx % grid[0], idx // grid[0])
-
-        def _atlas_cfg():
-            # Pull mapping from config if present
-            try:
-                return dict(self.cfg.get('cube_atlas', {}))
-            except Exception:
-                return {}
-
-        def _face_tiles_for_type(t: int):
-            atlas = _atlas_cfg()
-            grid = atlas.get('grid', [2,2])
-            types = atlas.get('types', {})
-            spec = types.get(str(int(t))) or types.get(int(t))
-            if spec is None:
-                # Fallback defaults
-                defaults = {
-                    '0': { 'all': 0, 'top': 2 },
-                    '1': { 'all': 1, 'top': 3 },
-                    '2': { 'all': 2 },
-                    '3': { 'all': 3 },
-                }
-                spec = defaults.get(str(int(t)), defaults['0'])
-            faces = {}
-            if 'all' in spec:
-                pair = _tile_pair_from(spec['all'], grid)
-                for f in ('+x','-x','+y','-y','+z','-z'):
-                    faces[f] = pair
-            for k,v in spec.items():
-                if k == 'all':
-                    continue
-                key = k if str(k).startswith(('+','-')) else str(k)
-                faces[key] = _tile_pair_from(v, grid)
-            return faces
-
-        def _uv_remap_to_tiles(root: NodePath, face_tiles, grid=(2,2)):
-            # duplicate geoms so this instance is unique
-            col = root.findAllMatches('**/+GeomNode')
-            for i in range(col.getNumPaths()):
-                gnp = col.getPath(i)
-                gnode = gnp.node()
-                for gi in range(gnode.getNumGeoms()):
-                    gnode.setGeom(gi, gnode.getGeom(gi).makeCopy())
-
-            aliases = {'right': '+x', 'left': '-x', 'front': '+y', 'back': '-y', 'top': '+z', 'bottom': '-z'}
-            wanted = {}
-            for k, v in face_tiles.items():
-                kk = aliases.get(str(k).lower(), str(k).lower())
-                wanted[kk] = v
-
-            tile_w, tile_h = 1.0/grid[0], 1.0/grid[1]
-
-            def classify(p0, p1, p2):
-                n = (p1 - p0).cross(p2 - p0)
-                if n.lengthSquared() == 0: return 'unknown'
-                n.normalize()
-                ax, ay, az = abs(n.x), abs(n.y), abs(n.z)
-                if ax >= ay and ax >= az: return '+x' if n.x>0 else '-x'
-                if ay >= ax and ay >= az: return '+y' if n.y>0 else '-y'
-                return '+z' if n.z>0 else '-z'
-
-            for i in range(col.getNumPaths()):
-                gnp = col.getPath(i)
-                gnode = gnp.node()
-                for gi in range(gnode.getNumGeoms()):
-                    geom = gnode.modifyGeom(gi)
-                    vdata = geom.modifyVertexData()
-                    # discover UV column
-                    uv_name = None
-                    fmt = vdata.getFormat()
-                    try:
-                        for ai in range(fmt.getNumArrays()):
-                            arr = fmt.getArray(ai)
-                            for ci in range(arr.getNumColumns()):
-                                nm = arr.getColumn(ci).getName().getName()
-                                if 'texcoord' in nm.lower():
-                                    uv_name = nm; raise StopIteration
-                    except StopIteration:
-                        pass
-                    if uv_name is None:
-                        continue
-                    rdr_v = GeomVertexReader(vdata, 'vertex')
-                    rdr_uv = GeomVertexReader(vdata, uv_name)
-                    wtr_uv = GeomVertexWriter(vdata, uv_name)
-                    for p in range(geom.getNumPrimitives()):
-                        prim = geom.modifyPrimitive(p).decompose()
-                        geom.setPrimitive(p, prim)
-                        nverts = prim.getNumVertices()
-                        for vi in range(0, nverts, 3):
-                            i0 = prim.getVertex(vi)
-                            i1 = prim.getVertex(vi+1)
-                            i2 = prim.getVertex(vi+2)
-                            rdr_v.setRow(i0); p0 = rdr_v.getData3f()
-                            rdr_v.setRow(i1); p1 = rdr_v.getData3f()
-                            rdr_v.setRow(i2); p2 = rdr_v.getData3f()
-                            face = classify(p0,p1,p2)
-                            if face not in wanted:
-                                continue
-                            tx, ty = wanted[face]
-                            off_u, off_v = tx*tile_w, ty*tile_h
-                            for idx in (i0,i1,i2):
-                                rdr_uv.setRow(idx); u,v = rdr_uv.getData2f()
-                                wtr_uv.setRow(idx); wtr_uv.setData2f(off_u + u*tile_w, off_v + v*tile_h)
-
-        if (not self._chunking_enabled) and self.cube_template is not None:
-            # Pre-bake a small set of variants (0..3) by remapping UVs once per type,
-            # then instance those variants for each block. This avoids rewriting
-            # vertex data for every single block.
-            self.cube_variants = {}
-            for t in range(4):
-                base_np = self.cube_template.copyTo(NodePath('cube_variants'))
-                try:
-                    _uv_remap_to_tiles(base_np, _face_tiles_for_type(t))
-                except Exception as e:
-                    print(f"[obstacles] variant {t} UV remap failed: {e}")
-                self.cube_variants[t] = base_np
-            print('[obstacles] prepared cube variants for types 0..3')
-
-            # Precompute team tint config and colors
-            atl_cfg = self.cfg.get('cube_atlas', {}) if isinstance(self.cfg, dict) else {}
-            tt_cfg = atl_cfg.get('team_tint', {}) if isinstance(atl_cfg, dict) else {}
-            tt_enabled = bool(tt_cfg.get('enabled', True))
-            tt_intensity = float(tt_cfg.get('intensity', 0.08))
-            tt_blend = float(tt_cfg.get('blend_width_m', 8.0))
-            try:
-                col_red = self.cfg.get('colors', {}).get('team_red', [0.85,0.2,0.1,1.0])
-                col_blue = self.cfg.get('colors', {}).get('team_blue', [0.15,0.45,0.95,1.0])
-            except Exception:
-                col_red = [0.85,0.2,0.1,1.0]
-                col_blue = [0.15,0.45,0.95,1.0]
-
-            first = True
-            for b in self.mapdata.blocks:
-                t = int(getattr(b, 'box_type', 0)) % 4
-                src = self.cube_variants.get(t, self.cube_template)
-                inst = src.copyTo(self.render)
-                inst.setPos(b.pos[0], b.pos[1], b.pos[2])
-                sx, sy, sz = b.size
-                if (abs(sx - 1.0) > 1e-6) or (abs(sy - 1.0) > 1e-6) or (abs(sz - 1.0) > 1e-6):
-                    inst.setScale(sx, sy, sz)
-                # Subtle team tint based on X half, with blend across the center line
-                try:
-                    if tt_enabled and tt_intensity > 0.0:
-                        x = b.pos[0]
-                        # Weight ramps from 0 near center to 1 beyond blend half-width
-                        w = 1.0
-                        if tt_blend > 0.0:
-                            half = 0.5 * tt_blend
-                            w = min(1.0, max(0.0, (abs(x) - 0.0) / max(half, 1e-6)))
-                        team = col_blue if x >= 0 else col_red
-                        sr = (1.0 - tt_intensity * w) + tt_intensity * w * float(team[0])
-                        sg = (1.0 - tt_intensity * w) + tt_intensity * w * float(team[1])
-                        sb = (1.0 - tt_intensity * w) + tt_intensity * w * float(team[2])
-                        inst.setColorScale(sr, sg, sb, 1.0)
-                except Exception:
-                    pass
-                if first:
-                    try:
-                        print('[obstacles] first instance textures:', [t.getName() for t in inst.findAllTextures()], 'type:', getattr(b,'box_type',0))
-                    except Exception:
-                        pass
-                    first = False
 
         # bases / beacons
         self.red_beacon = self.loader.loadModel("models/box")
@@ -919,12 +730,11 @@ class GameApp(ShowBase):
         self.win.requestProperties(wp)
         self.mouse_locked = True
 
-    def _build_chunked_world(self, map_file: str) -> bool:
+    def _build_chunked_world(self, map_file: str) -> None:
         try:
             grid, block_registry = load_map_to_voxels(map_file)
         except Exception as exc:
-            print(f"[perf] chunking disabled (load failure): {exc}")
-            return False
+            raise RuntimeError(f"[perf] chunk build failed to load voxels: {exc}") from exc
 
         chunk_size = self._chunk_size_from_config()
         cube_size = float(getattr(self.mapdata, "cube_size", 1.0) or 1.0)
@@ -1065,8 +875,7 @@ class GameApp(ShowBase):
 
         if chunk_count == 0:
             chunk_root.removeNode()
-            print("[perf] chunking disabled (empty chunks)")
-            return False
+            raise RuntimeError("[perf] chunk build produced zero mesh chunks")
 
         self.world_chunks_np = chunk_root
         self.chunk_manager = manager
@@ -1082,7 +891,6 @@ class GameApp(ShowBase):
             f"[perf] chunking built chunks={chunk_count} faces={total_faces} "
             f"vertices={total_vertices} nodes={active_nodes}/{manager.total_chunks}"
         )
-        return True
 
     def _make_chunk_debug_node(self, key: ChunkKey, chunk_node: NodePath, parent: NodePath) -> NodePath:
         geom_copy = chunk_node.node().makeCopy()
@@ -2089,7 +1897,7 @@ class GameApp(ShowBase):
             except Exception:
                 pass
 
-        if self._chunking_enabled and self.chunk_manager is not None:
+        if self.chunk_manager is not None:
             try:
                 focus = self.camera.getPos(self.render)
                 self.chunk_manager.update((focus.x, focus.y, focus.z))

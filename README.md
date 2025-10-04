@@ -52,7 +52,6 @@ Key sections in `configs/defaults.json`:
 - `server`: ports, tick/snapshot rates, bot behaviour, victory conditions
 - `gameplay`: movement speeds, acceleration, spread/recoil, grenade tuning, respawn timers
 - `map`: select the arena layout JSON under `configs/maps/`
-- `cube_atlas`: fallback UV/tint settings when chunking is disabled
 - `gameplay.character_collider`: choose `aabb` or `capsule` for player physics bodies
 - `colors`, `hud`, `audio`, `cosmetics`: team tinting, killfeed TTL, footsteps, nameplates
 - `ragdoll`, `laser_visual`: tweak knockback, beam rendering
@@ -79,7 +78,7 @@ Clients mirror many of these options in `configs/client_settings.json` (video, a
 - `server.py` bootstraps Panda3D/Bullet, constructs the ECS world, spawns flags & players as entities, and runs pre/post physics systems each frame.
 - `game/ecs/` contains component definitions, the minimal ECS world, movement/combat/collision systems, snapshot serialization, and view facades for legacy code.
 - `common/net.py` handles LAN discovery (UDP broadcast) and TCP JSON streams.
-- `world/map_adapter.py` and `game/collider_merge.py` bridge authored maps into voxel grids and merged colliders.
+- `world/map_adapter.py` converts authored maps into voxel grids for chunking and physics.
 - `game/bot_ai.py` supplies Simple and A* brains; the server updates them at 10 Hz and feeds decisions into `PlayerInput` components.
 - `client.py` renders the arena, handles input, interpolation, HUD (including `scoreboard.py`), and applies server snapshots.
 
