@@ -5,7 +5,7 @@ import argparse
 import os
 import sys
 import time
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Tuple, Set
 
 from panda3d.core import loadPrcFileData
 
@@ -153,6 +153,20 @@ def main(argv: List[str]) -> int:
             print("[bench] Atlas assets missing; disabling atlas usage")
             use_atlas = False
 
+    chunk_blocks = list(_iter_chunk_blocks(chunk_index, origin_indices))
+
+    solid_voxels: Set[Tuple[int, int, int]] = set()
+    for _key, blocks in chunk_blocks:
+        for wx, wy, wz, block_id in blocks:
+            if block_id != 0:
+                block_def = registry.get(block_id)
+                opaque = True if block_def is None else getattr(block_def, "opaque", True)
+                if opaque:
+                    solid_voxels.add((wx, wy, wz))
+
+    def is_solid(wx: int, wy: int, wz: int) -> bool:
+        return (wx, wy, wz) in solid_voxels
+
     mesher = ChunkMesher(
         registry,
         use_atlas,
@@ -167,14 +181,14 @@ def main(argv: List[str]) -> int:
     chunk_count = 0
 
     t_mesh_start = time.perf_counter()
-    for key, blocks in _iter_chunk_blocks(chunk_index, origin_indices):
+    for key, blocks in chunk_blocks:
         (start_x, start_y, start_z), _ = chunk_index.world_bounds_in_chunk(key)
         chunk_origin = (
             start_x + origin_indices[0],
             start_y + origin_indices[1],
             start_z + origin_indices[2],
         )
-        node = mesher.build_geomnode(blocks, chunk_origin, chunk_size)
+        node = mesher.build_geomnode(blocks, chunk_origin, chunk_size, solid_lookup=is_solid)
         geom_node = node.node()
         if geom_node.getNumGeoms() == 0:
             continue

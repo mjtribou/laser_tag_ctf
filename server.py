@@ -1,7 +1,7 @@
-# server.py — Authoritative server with Bullet physics (players, walls, floor, obstacles),
+# server.py — Authoritative server with Bullet physics (players, block-built world, obstacles),
 # Bullet ray tests for lasers, safe-spawn, auto-unstick, and shared solid collide-mask fix.
 import asyncio, json, math, time, random, argparse, signal
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Set
 from bisect import bisect_right
 
 from common.net import read_json, send_json, lan_discovery_server
@@ -155,7 +155,7 @@ class LaserTagServer:
         self.world = BulletWorld()
         self.world.setGravity(Vec3(0, 0, -float(cfg["gameplay"]["gravity"])))
 
-        self._static_nodes: List[NodePath] = []  # floor, obstacles, walls
+        self._static_nodes: List[NodePath] = []  # permanent static colliders
         self._char_np: Dict[int, NodePath] = {}  # pid -> NodePath (character)
         self._char_node: Dict[int, BulletCharacterControllerNode] = {}
         self._node_id_to_pid: Dict[int, int] = {}  # id(BulletNode) -> pid (for ray hits)
@@ -304,6 +304,21 @@ class LaserTagServer:
 
         mesher = ChunkMesher(registry, use_atlas=False, cube_size=cube_size, greedy=greedy_enabled)
 
+        solid_voxels: Set[Tuple[int, int, int]] = set()
+        for key in chunk_index.iter_chunk_keys():
+            for x, y, z, block_id in chunk_index.iter_blocks_in_chunk(key):
+                wx = x + origin_indices[0]
+                wy = y + origin_indices[1]
+                wz = z + origin_indices[2]
+                if block_id != 0:
+                    block_def = registry.get(block_id)
+                    opaque = True if block_def is None else getattr(block_def, "opaque", True)
+                    if opaque:
+                        solid_voxels.add((wx, wy, wz))
+
+        def is_solid(wx: int, wy: int, wz: int) -> bool:
+            return (wx, wy, wz) in solid_voxels
+
         chunk_count = 0
         total_faces = 0
         total_vertices = 0
@@ -326,7 +341,13 @@ class LaserTagServer:
             )
 
             triangles: List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]] = []
-            mesher.build_geomnode(blocks, chunk_origin, chunk_size, triangles_out=triangles)
+            mesher.build_geomnode(
+                blocks,
+                chunk_origin,
+                chunk_size,
+                solid_lookup=is_solid,
+                triangles_out=triangles,
+            )
             if not triangles:
                 continue
 
@@ -341,11 +362,6 @@ class LaserTagServer:
         return (chunk_count, total_faces, total_vertices)
 
     def _build_static_world(self):
-        size_x, size_z = self.cfg["gameplay"]["arena_size_m"]
-
-        # Floor slab (top at z=0). Make it thick to be safe.
-        self._attach_static_box((0.0, 0.0, -2.5), (size_x, size_z, 5.0), "floor")
-
         chunking_enabled = bool(engine_config_get("world.chunking.enabled", False))
         chunk_summary: Optional[Tuple[int, int, int]] = None
         if chunking_enabled:
@@ -396,15 +412,6 @@ class LaserTagServer:
                     print(f"[server] static world: {count_blocks} merged colliders attached (mode={merge_mode})")
                 except Exception:
                     pass
-
-        # Arena walls (thin boxes)
-        wall_t = 0.5
-        wall_h = 5.0
-        hx, hz = size_x * 0.5, size_z * 0.5
-        self._attach_static_box((-hx - wall_t*0.5, 0.0, wall_h*0.5), (wall_t, size_z, wall_h), "wall_w")
-        self._attach_static_box((+hx + wall_t*0.5, 0.0, wall_h*0.5), (wall_t, size_z, wall_h), "wall_e")
-        self._attach_static_box((0.0, -hz - wall_t*0.5, wall_h*0.5), (size_x, wall_t, wall_h), "wall_s")
-        self._attach_static_box((0.0, +hz + wall_t*0.5, wall_h*0.5), (size_x, wall_t, wall_h), "wall_n")
 
     def _create_character(self, entity: int, pid: int, pos: Tuple[float, float, float], yaw_rad: float):
         """Create a kinematic character using an **axis-aligned box** (AABB) shape.

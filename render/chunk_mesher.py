@@ -1,7 +1,7 @@
 """Chunk meshing helpers to emit Panda3D geometry per chunk."""
 from __future__ import annotations
 
-from typing import Dict, Iterable, List, Optional, Tuple, Set
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, Set
 
 from panda3d.core import (
     Geom,
@@ -81,6 +81,8 @@ class ChunkMesher:
         chunk_blocks_iter: Iterable[Tuple[int, int, int, int]],
         chunk_origin_xyz: Tuple[int, int, int],
         chunk_size_xyz: Tuple[int, int, int],
+        *,
+        solid_lookup: Optional[Callable[[int, int, int], bool]] = None,
         triangles_out: Optional[List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]]] = None,
     ) -> NodePath:
         """Emit a `GeomNode` containing only the exposed faces for this chunk."""
@@ -111,6 +113,7 @@ class ChunkMesher:
                 nwriter,
                 twriter,
                 prim,
+                solid_lookup,
                 triangles_out,
             )
         else:
@@ -121,6 +124,7 @@ class ChunkMesher:
                 nwriter,
                 twriter,
                 prim,
+                solid_lookup,
                 triangles_out,
             )
 
@@ -143,6 +147,7 @@ class ChunkMesher:
         nwriter: GeomVertexWriter,
         twriter: GeomVertexWriter,
         prim: GeomTriangles,
+        solid_lookup: Optional[Callable[[int, int, int], bool]],
         triangles_out: Optional[List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]]],
     ) -> int:
         vertex_index = 0
@@ -164,7 +169,7 @@ class ChunkMesher:
                 nx = wx + face_dir[0]
                 ny = wy + face_dir[1]
                 nz = wz + face_dir[2]
-                if (nx, ny, nz) in block_map:
+                if self._has_solid_neighbor(nx, ny, nz, block_map, solid_lookup):
                     continue
                 verts_local: List[Tuple[float, float, float]] = []
                 verts_world: List[Tuple[float, float, float]] = []
@@ -198,6 +203,7 @@ class ChunkMesher:
         nwriter: GeomVertexWriter,
         twriter: GeomVertexWriter,
         prim: GeomTriangles,
+        solid_lookup: Optional[Callable[[int, int, int], bool]],
         triangles_out: Optional[List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]]],
     ) -> int:
         vertex_index, emitted_top = self._emit_greedy_top_faces(
@@ -207,6 +213,7 @@ class ChunkMesher:
             nwriter,
             twriter,
             prim,
+            solid_lookup,
             triangles_out,
         )
         vertex_index = self._emit_remaining_faces(
@@ -216,6 +223,7 @@ class ChunkMesher:
             nwriter,
             twriter,
             prim,
+            solid_lookup,
             triangles_out,
             vertex_index,
             emitted_top,
@@ -230,6 +238,7 @@ class ChunkMesher:
         nwriter: GeomVertexWriter,
         twriter: GeomVertexWriter,
         prim: GeomTriangles,
+        solid_lookup: Optional[Callable[[int, int, int], bool]],
         triangles_out: Optional[List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]]],
     ) -> Tuple[int, Set[Tuple[int, int, int]]]:
         # TODO: Extend greedy merging to the remaining face directions when necessary.
@@ -237,7 +246,7 @@ class ChunkMesher:
         for (wx, wy, wz), block_id in block_map.items():
             if block_id == 0:
                 continue
-            if (wx, wy, wz + 1) in block_map:
+            if self._has_solid_neighbor(wx, wy, wz + 1, block_map, solid_lookup):
                 continue
             uv_set = self._uvs_for_block(block_id)
             layers.setdefault(wz, {})[(wx, wy)] = (block_id, uv_set)
@@ -338,6 +347,7 @@ class ChunkMesher:
         nwriter: GeomVertexWriter,
         twriter: GeomVertexWriter,
         prim: GeomTriangles,
+        solid_lookup: Optional[Callable[[int, int, int], bool]],
         triangles_out: Optional[List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]]],
         vertex_index: int,
         skip_top: Set[Tuple[int, int, int]],
@@ -362,7 +372,7 @@ class ChunkMesher:
                 nx = wx + face_dir[0]
                 ny = wy + face_dir[1]
                 nz = wz + face_dir[2]
-                if (nx, ny, nz) in block_map:
+                if self._has_solid_neighbor(nx, ny, nz, block_map, solid_lookup):
                     continue
                 verts_local: List[Tuple[float, float, float]] = []
                 verts_world: List[Tuple[float, float, float]] = []
@@ -399,6 +409,23 @@ class ChunkMesher:
             tex_attr = tex_attr.add_on_stage(self._TEXTURE_STAGE, self._atlas_texture)
             attribs.append(tex_attr)
         return RenderState.make(*attribs)
+
+    def _has_solid_neighbor(
+        self,
+        nx: int,
+        ny: int,
+        nz: int,
+        block_map: Dict[Tuple[int, int, int], int],
+        solid_lookup: Optional[Callable[[int, int, int], bool]],
+    ) -> bool:
+        if (nx, ny, nz) in block_map:
+            return True
+        if solid_lookup is None:
+            return False
+        try:
+            return bool(solid_lookup(nx, ny, nz))
+        except Exception:
+            return False
 
     def _write_face(
         self,

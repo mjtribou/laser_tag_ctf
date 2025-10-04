@@ -12,5 +12,13 @@
       "path": "assets/atlas/atlas.png",
       "meta": "assets/atlas/atlas_meta.json"
     }
+  },
+  "debug": {
+    "colliders": {
+      "enabled": true,
+      "build": true,
+      "mode": "off",
+      "toggle_key": "f7"
+    }
   }
 }

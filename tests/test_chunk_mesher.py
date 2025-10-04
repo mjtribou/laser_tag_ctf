@@ -36,6 +36,20 @@ def test_solid_three_cube_only_shell():
     assert tri_count == 108
 
 
+def test_cross_chunk_neighbors_hide_shared_face():
+    mesher = ChunkMesher({1: BlockDef("stone", "stone")}, use_atlas=False, cube_size=1.0)
+    solid = {(0, 0, 0), (1, 0, 0)}
+
+    def is_solid(wx: int, wy: int, wz: int) -> bool:
+        return (wx, wy, wz) in solid
+
+    chunk_a = mesher.build_geomnode([(0, 0, 0, 1)], (0, 0, 0), (1, 1, 1), solid_lookup=is_solid)
+    chunk_b = mesher.build_geomnode([(1, 0, 0, 1)], (1, 0, 0), (1, 1, 1), solid_lookup=is_solid)
+
+    assert _collect_triangles(chunk_a) == 10
+    assert _collect_triangles(chunk_b) == 10
+
+
 def test_atlas_uv_lookup():
     meta = {"stone": (0.25, 0.5, 0.5, 0.75)}
     texture = Texture()

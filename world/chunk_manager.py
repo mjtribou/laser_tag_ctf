@@ -29,6 +29,7 @@ class WorldChunkManager:
         *,
         bullet_world: Optional["BulletWorld"] = None,
         tick_hz: float = 8.0,
+        debug_parent: Optional[NodePath] = None,
     ) -> None:
         self.render_parent = render_parent
         self.chunk_size = tuple(int(max(1, v)) for v in chunk_size)
@@ -36,6 +37,7 @@ class WorldChunkManager:
         self.origin_indices = tuple(int(v) for v in origin_indices)
         self.render_distance = max(0, int(render_distance))
         self.bullet_world = bullet_world
+        self._debug_parent = debug_parent
 
         interval = 1.0 / max(0.1, float(tick_hz))
         self._tick_interval = interval
@@ -45,6 +47,8 @@ class WorldChunkManager:
         self._physics_chunks: Dict[ChunkKey, "BulletRigidBodyNode"] = {}
         self._active_render: Set[ChunkKey] = set()
         self._active_physics: Set[ChunkKey] = set()
+        self._debug_chunks: Dict[ChunkKey, NodePath] = {}
+        self._debug_visible = False
 
         self._last_logged_counts: Tuple[int, int] = (-1, -1)
 
@@ -54,6 +58,8 @@ class WorldChunkManager:
         key: ChunkKey,
         node: NodePath,
         body: Optional["BulletRigidBodyNode"] = None,
+        *,
+        debug_node: Optional[NodePath] = None,
     ) -> None:
         """Register a chunk's render node (and optional physics body)."""
         self._render_chunks[key] = node
@@ -70,6 +76,15 @@ class WorldChunkManager:
                     pass
         elif key in self._physics_chunks:
             self._physics_chunks.pop(key, None)
+
+        if debug_node is not None:
+            self._debug_chunks[key] = debug_node
+            if not debug_node.isEmpty():
+                debug_node.detachNode()
+        elif key in self._debug_chunks:
+            debug_np = self._debug_chunks.pop(key, None)
+            if debug_np is not None and not debug_np.isEmpty():
+                debug_np.detachNode()
 
     # ------------------------------------------------------------------
     def update(
@@ -104,6 +119,18 @@ class WorldChunkManager:
             node.detachNode()
         self._active_render = active_keys
 
+        if self._debug_parent is not None:
+            for key in newly_active:
+                debug_np = self._debug_chunks.get(key)
+                if debug_np is None or debug_np.isEmpty():
+                    continue
+                debug_np.wrtReparentTo(self._debug_parent)
+            for key in newly_inactive:
+                debug_np = self._debug_chunks.get(key)
+                if debug_np is None or debug_np.isEmpty():
+                    continue
+                debug_np.detachNode()
+
         # --- Physics chunks ---
         if self.bullet_world is not None:
             desired_phys = {key for key in active_keys if key in self._physics_chunks}
@@ -128,6 +155,16 @@ class WorldChunkManager:
             self._active_physics = desired_phys
 
         self._log_counts()
+
+    # ------------------------------------------------------------------
+    def set_debug_visible(self, visible: bool) -> None:
+        if self._debug_parent is None or self._debug_parent.isEmpty():
+            return
+        self._debug_visible = bool(visible)
+        if self._debug_visible:
+            self._debug_parent.show()
+        else:
+            self._debug_parent.hide()
 
     # ------------------------------------------------------------------
     def _select_active_keys(self, focus_key: ChunkKey) -> Set[ChunkKey]:
@@ -177,3 +214,7 @@ class WorldChunkManager:
     @property
     def total_chunks(self) -> int:
         return len(self._render_chunks)
+
+    @property
+    def debug_parent(self) -> Optional[NodePath]:
+        return self._debug_parent

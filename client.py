@@ -1,6 +1,6 @@
 # client.py
 import sys, asyncio, json, time, math, argparse, threading, random, os
-from typing import Dict, Any, List, Tuple, Optional
+from typing import Dict, Any, List, Tuple, Optional, Set
 from bisect import bisect, bisect_right
 
 from direct.showbase.ShowBase import ShowBase
@@ -533,14 +533,6 @@ class GameApp(ShowBase):
         cfg["gameplay"]["arena_size_m"] = [size_x, size_y]
         print(f"[map] Loaded '{map_file}' ({size_x:.1f}×{size_y:.1f} m)")
 
-        # floor plane (visual only)
-        cm = self.render.attachNewNode("floor")
-        floor = self.loader.loadModel("models/box")
-        floor.setScale(size_x, size_y, 0.1)
-        floor.setPos(0, 0, -0.05)
-        floor.setColor(0.2, 0.2, 0.22, 1)
-        floor.reparentTo(cm)
-
         # --- Obstacles: glTF cube + simplepbr with per-instance UV remap ---
         # Enable simplepbr for proper glTF PBR if available
         self._pbr = None
@@ -568,6 +560,11 @@ class GameApp(ShowBase):
 
         self.world_chunks_np = None
         self.chunk_manager: Optional[WorldChunkManager] = None
+        self._chunk_debug_nodes: Dict[ChunkKey, NodePath] = {}
+        self._collider_debug_root: Optional[NodePath] = None
+        self._collider_debug_modes: Tuple[str, ...] = ("off", "wire", "solid")
+        self._collider_debug_index: int = 0
+        self._collider_debug_toggle_key: Optional[str] = None
         self._chunking_enabled = bool(engine_config_get("world.chunking.enabled", False))
         if self._chunking_enabled:
             if not self._build_chunked_world(map_file):
@@ -936,6 +933,28 @@ class GameApp(ShowBase):
 
         chunk_index = ChunkIndex(grid, chunk_size=chunk_size)
 
+        collider_cfg = engine_config_get("debug.colliders", {})
+        if not isinstance(collider_cfg, dict):
+            collider_cfg = {}
+        debug_mode_cfg = str(collider_cfg.get("mode", "off") or "off").strip().lower()
+        debug_enabled_flag = bool(collider_cfg.get("enabled", False))
+        debug_toggle_key = str(collider_cfg.get("toggle_key", "f7") or "f7").strip().lower()
+        build_debug = bool(collider_cfg.get("build", True))
+        if debug_mode_cfg not in self._collider_debug_modes:
+            debug_mode_cfg = "off"
+        self._collider_debug_index = self._collider_debug_modes.index(debug_mode_cfg)
+        debug_build = build_debug or debug_enabled_flag or debug_mode_cfg in ("wire", "solid")
+        self._chunk_debug_nodes = {}
+
+        chunk_debug_root: Optional[NodePath] = None
+        if debug_build:
+            chunk_debug_root = self.render.attachNewNode("chunk_colliders")
+            chunk_debug_root.hide()
+            chunk_debug_root.setTransparency(TransparencyAttrib.M_alpha)
+            chunk_debug_root.setBin("transparent", 18)
+        self._collider_debug_root = chunk_debug_root
+        self._collider_debug_toggle_key = debug_toggle_key if debug_toggle_key else None
+
         atlas_texture = None
         atlas_meta = {}
         if use_atlas:
@@ -949,6 +968,21 @@ class GameApp(ShowBase):
             greedy_enabled = greedy_cfg.strip().lower() not in ("", "0", "false", "no")
         else:
             greedy_enabled = bool(greedy_cfg)
+
+        solid_voxels: Set[Tuple[int, int, int]] = set()
+        for key in chunk_index.iter_chunk_keys():
+            for x, y, z, block_id in chunk_index.iter_blocks_in_chunk(key):
+                wx = x + origin_indices[0]
+                wy = y + origin_indices[1]
+                wz = z + origin_indices[2]
+                if block_id != 0:
+                    block_def = block_registry.get(block_id)
+                    opaque = True if block_def is None else getattr(block_def, "opaque", True)
+                    if opaque:
+                        solid_voxels.add((wx, wy, wz))
+
+        def is_solid(wx: int, wy: int, wz: int) -> bool:
+            return (wx, wy, wz) in solid_voxels
 
         mesher = ChunkMesher(
             block_registry,
@@ -977,6 +1011,7 @@ class GameApp(ShowBase):
             render_distance=render_distance,
             bullet_world=None,
             tick_hz=update_hz,
+            debug_parent=chunk_debug_root,
         )
 
         total_faces = 0
@@ -1000,12 +1035,18 @@ class GameApp(ShowBase):
                 start_z + origin_indices[2],
             )
 
-            node = mesher.build_geomnode(blocks, chunk_origin, chunk_size)
+            node = mesher.build_geomnode(blocks, chunk_origin, chunk_size, solid_lookup=is_solid)
             geom_node = node.node()
             if geom_node.getNumGeoms() == 0:
                 continue
 
-            manager.register_chunk(ChunkKey(key.x, key.y, key.z), node)
+            chunk_key = ChunkKey(key.x, key.y, key.z)
+            debug_node = None
+            if chunk_debug_root is not None:
+                debug_node = self._make_chunk_debug_node(chunk_key, node, chunk_debug_root)
+                self._chunk_debug_nodes[chunk_key] = debug_node
+
+            manager.register_chunk(chunk_key, node, debug_node=debug_node)
             chunk_count += 1
 
             node_triangles = 0
@@ -1030,6 +1071,10 @@ class GameApp(ShowBase):
         self.world_chunks_np = chunk_root
         self.chunk_manager = manager
 
+        if self._collider_debug_toggle_key:
+            self.accept(self._collider_debug_toggle_key, self._cycle_collider_debug_mode)
+        self._apply_collider_debug_style(self._collider_debug_modes[self._collider_debug_index])
+
         focus = self.camera.getPos(self.render)
         manager.update((focus.x, focus.y, focus.z), time.time(), force=True)
         active_nodes = manager.active_render_count
@@ -1038,6 +1083,84 @@ class GameApp(ShowBase):
             f"vertices={total_vertices} nodes={active_nodes}/{manager.total_chunks}"
         )
         return True
+
+    def _make_chunk_debug_node(self, key: ChunkKey, chunk_node: NodePath, parent: NodePath) -> NodePath:
+        geom_copy = chunk_node.node().makeCopy()
+        debug_np = parent.attachNewNode(geom_copy)
+        debug_np.setTransform(chunk_node.getTransform())
+        debug_np.setName(f"chunk_debug_{key.x}_{key.y}_{key.z}")
+        color = self._chunk_debug_color(key)
+        debug_np.setPythonTag("debug_color", color)
+        debug_np.setColorScale(color[0], color[1], color[2], 1.0)
+        debug_np.setTransparency(TransparencyAttrib.M_alpha)
+        debug_np.setLightOff(1)
+        debug_np.setTextureOff(1)
+        debug_np.setTwoSided(True)
+        debug_np.setDepthTest(True)
+        debug_np.setDepthWrite(False)
+        debug_np.setShaderOff(1)
+        return debug_np
+
+    def _chunk_debug_color(self, key: ChunkKey) -> Tuple[float, float, float]:
+        seed = (key.x * 73856093) ^ (key.y * 19349663) ^ (key.z * 83492791)
+        rng = random.Random(seed & 0xFFFFFFFF)
+        return (
+            0.35 + 0.55 * rng.random(),
+            0.35 + 0.55 * rng.random(),
+            0.35 + 0.55 * rng.random(),
+        )
+
+    def _apply_collider_debug_style(self, mode: str) -> None:
+        if mode not in self._collider_debug_modes:
+            mode = "off"
+        self._collider_debug_index = self._collider_debug_modes.index(mode)
+
+        has_geo = bool(self._chunk_debug_nodes)
+        chunk_mgr = self.chunk_manager
+        if chunk_mgr is not None:
+            chunk_mgr.set_debug_visible(mode in ("wire", "solid") and has_geo)
+
+        if self.world_chunks_np is not None and not self.world_chunks_np.isEmpty():
+            if mode in ("wire", "solid") and has_geo:
+                self.world_chunks_np.hide()
+            else:
+                self.world_chunks_np.show()
+
+        if mode in ("wire", "solid") and not has_geo:
+            try:
+                print("[debug] collider overlay: no debug geometry available (enable debug.colliders.build)")
+            except Exception:
+                pass
+            return
+        if not has_geo:
+            return
+
+        alpha = 1.0 if mode == "wire" else 0.3
+        for debug_np in self._chunk_debug_nodes.values():
+            if debug_np.isEmpty():
+                continue
+            if mode == "wire":
+                debug_np.setRenderModeWireframe()
+            else:
+                debug_np.setRenderModeFilled()
+            color = debug_np.getPythonTag("debug_color")
+            if not isinstance(color, tuple) or len(color) != 3:
+                color = (1.0, 0.5, 0.2)
+            debug_np.setColorScale(color[0], color[1], color[2], alpha)
+            debug_np.setTransparency(TransparencyAttrib.M_alpha)
+            debug_np.setDepthWrite(False)
+            debug_np.setLightOff(1)
+            debug_np.setTextureOff(1)
+            debug_np.setTwoSided(True)
+
+    def _cycle_collider_debug_mode(self) -> None:
+        self._collider_debug_index = (self._collider_debug_index + 1) % len(self._collider_debug_modes)
+        mode = self._collider_debug_modes[self._collider_debug_index]
+        self._apply_collider_debug_style(mode)
+        try:
+            print(f"[debug] collider overlay mode → {mode}")
+        except Exception:
+            pass
 
     def _chunk_size_from_config(self) -> Tuple[int, int, int]:
         cfg = engine_config_get("world.chunking.size", [16, 16, 16])
