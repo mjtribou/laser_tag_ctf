@@ -7,7 +7,7 @@ from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
 from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f, KeyboardButton, WindowProperties, ClockObject
 from panda3d.core import LColor, MouseButton, LineSegs, TextNode
-from panda3d.core import TextNode, TransparencyAttrib, NodePath, LVecBase4f
+from panda3d.core import TextNode, TransparencyAttrib, NodePath, LVecBase4f, CullFaceAttrib
 from panda3d.core import TextProperties, TextPropertiesManager
 
 
@@ -903,7 +903,6 @@ class GameApp(ShowBase):
         debug_np.setTransparency(TransparencyAttrib.M_alpha)
         debug_np.setLightOff(1)
         debug_np.setTextureOff(1)
-        debug_np.setTwoSided(True)
         debug_np.setDepthTest(True)
         debug_np.setDepthWrite(False)
         debug_np.setShaderOff(1)
@@ -949,8 +948,12 @@ class GameApp(ShowBase):
                 continue
             if mode == "wire":
                 debug_np.setRenderModeWireframe()
+                debug_np.setTwoSided(True)
+                debug_np.setAttrib(CullFaceAttrib.make(CullFaceAttrib.MCullNone))
             else:
                 debug_np.setRenderModeFilled()
+                debug_np.setTwoSided(False)
+                debug_np.setAttrib(CullFaceAttrib.make(CullFaceAttrib.MCullClockwise))
             color = debug_np.getPythonTag("debug_color")
             if not isinstance(color, tuple) or len(color) != 3:
                 color = (1.0, 0.5, 0.2)
@@ -959,7 +962,6 @@ class GameApp(ShowBase):
             debug_np.setDepthWrite(False)
             debug_np.setLightOff(1)
             debug_np.setTextureOff(1)
-            debug_np.setTwoSided(True)
 
     def _cycle_collider_debug_mode(self) -> None:
         self._collider_debug_index = (self._collider_debug_index + 1) % len(self._collider_debug_modes)
