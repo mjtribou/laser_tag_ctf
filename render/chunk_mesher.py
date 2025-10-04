@@ -1,7 +1,7 @@
 """Chunk meshing helpers to emit Panda3D geometry per chunk."""
 from __future__ import annotations
 
-from typing import Callable, Dict, Iterable, List, Optional, Tuple, Set
+from typing import Callable, Dict, Iterable, List, Optional, Tuple, Set, NamedTuple
 
 from panda3d.core import (
     Geom,
@@ -22,6 +22,22 @@ from panda3d.core import (
 )
 
 from world.map_adapter import BlockDef
+
+
+class _FaceConfig(NamedTuple):
+    direction: Tuple[int, int, int]
+    axis: int
+    positive: bool
+    u_axis: int
+    v_axis: int
+    offsets: Tuple[Tuple[int, int, int], ...]
+    normal: Tuple[int, int, int]
+    u_bits: Tuple[int, int, int, int]
+    v_bits: Tuple[int, int, int, int]
+    idx00: int
+    idx10: int
+    idx11: int
+    idx01: int
 
 
 class ChunkMesher:
@@ -66,6 +82,48 @@ class ChunkMesher:
             self._material = mat
         self.greedy = bool(greedy) and not self.use_atlas
         self._render_state = self._build_render_state()
+        self._face_configs: List[_FaceConfig] = []
+        if self.greedy:
+            for direction, offsets, normal in self._face_defs:
+                axis = 0 if direction[0] != 0 else 1 if direction[1] != 0 else 2
+                positive = direction[axis] > 0
+                axes = [0, 1, 2]
+                axes.remove(axis)
+                u_axis, v_axis = axes
+                u_bits = tuple(offset[u_axis] for offset in offsets)
+                v_bits = tuple(offset[v_axis] for offset in offsets)
+                idx00 = self._find_corner_index(u_bits, v_bits, 0, 0)
+                idx10 = self._find_corner_index(u_bits, v_bits, 1, 0)
+                idx11 = self._find_corner_index(u_bits, v_bits, 1, 1)
+                idx01 = self._find_corner_index(u_bits, v_bits, 0, 1)
+                cfg = _FaceConfig(
+                    direction=direction,
+                    axis=axis,
+                    positive=positive,
+                    u_axis=u_axis,
+                    v_axis=v_axis,
+                    offsets=offsets,
+                    normal=normal,
+                    u_bits=u_bits,
+                    v_bits=v_bits,
+                    idx00=idx00,
+                    idx10=idx10,
+                    idx11=idx11,
+                    idx01=idx01,
+                )
+                self._face_configs.append(cfg)
+
+    @staticmethod
+    def _find_corner_index(
+        u_bits: Tuple[int, int, int, int],
+        v_bits: Tuple[int, int, int, int],
+        target_u: int,
+        target_v: int,
+    ) -> int:
+        for idx, (ub, vb) in enumerate(zip(u_bits, v_bits)):
+            if ub == target_u and vb == target_v:
+                return idx
+        raise ValueError("Quad vertex mapping missing expected corner")
 
     def _build_block_map(self, chunk_blocks_iter: Iterable[Tuple[int, int, int, int]]) -> Dict[Tuple[int, int, int], int]:
         block_map: Dict[Tuple[int, int, int], int] = {}
@@ -206,140 +264,23 @@ class ChunkMesher:
         solid_lookup: Optional[Callable[[int, int, int], bool]],
         triangles_out: Optional[List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]]],
     ) -> int:
-        vertex_index, emitted_top = self._emit_greedy_top_faces(
-            block_map,
-            chunk_origin_world,
-            vwriter,
-            nwriter,
-            twriter,
-            prim,
-            solid_lookup,
-            triangles_out,
-        )
-        vertex_index = self._emit_remaining_faces(
-            block_map,
-            chunk_origin_world,
-            vwriter,
-            nwriter,
-            twriter,
-            prim,
-            solid_lookup,
-            triangles_out,
-            vertex_index,
-            emitted_top,
-        )
+        vertex_index = 0
+        for config in self._face_configs:
+            vertex_index = self._emit_greedy_direction(
+                block_map,
+                chunk_origin_world,
+                vwriter,
+                nwriter,
+                twriter,
+                prim,
+                solid_lookup,
+                triangles_out,
+                vertex_index,
+                config,
+            )
         return vertex_index
 
-    def _emit_greedy_top_faces(
-        self,
-        block_map: Dict[Tuple[int, int, int], int],
-        chunk_origin_world: Tuple[float, float, float],
-        vwriter: GeomVertexWriter,
-        nwriter: GeomVertexWriter,
-        twriter: GeomVertexWriter,
-        prim: GeomTriangles,
-        solid_lookup: Optional[Callable[[int, int, int], bool]],
-        triangles_out: Optional[List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]]],
-    ) -> Tuple[int, Set[Tuple[int, int, int]]]:
-        # TODO: Extend greedy merging to the remaining face directions when necessary.
-        layers: Dict[int, Dict[Tuple[int, int], Tuple[int, Tuple[Tuple[float, float], ...]]]] = {}
-        for (wx, wy, wz), block_id in block_map.items():
-            if block_id == 0:
-                continue
-            if self._has_solid_neighbor(wx, wy, wz + 1, block_map, solid_lookup):
-                continue
-            uv_set = self._uvs_for_block(block_id)
-            layers.setdefault(wz, {})[(wx, wy)] = (block_id, uv_set)
-
-        emitted: Set[Tuple[int, int, int]] = set()
-        vertex_index = 0
-        normal = (0.0, 0.0, 1.0)
-        step = self._scale
-
-        for z in sorted(layers.keys()):
-            grid = layers[z]
-            used: Set[Tuple[int, int]] = set()
-            for (x, y) in sorted(grid.keys()):
-                if (x, y) in used:
-                    continue
-                block_id, uv_base = grid[(x, y)]
-                width = 1
-                while True:
-                    cell = (x + width, y)
-                    data = grid.get(cell)
-                    if data is None or data[0] != block_id or data[1] != uv_base or cell in used:
-                        break
-                    width += 1
-
-                height = 1
-                while True:
-                    row_y = y + height
-                    row_ok = True
-                    for dx in range(width):
-                        cell = (x + dx, row_y)
-                        data = grid.get(cell)
-                        if data is None or data[0] != block_id or data[1] != uv_base or cell in used:
-                            row_ok = False
-                            break
-                    if not row_ok:
-                        break
-                    height += 1
-
-                for dx in range(width):
-                    for dy in range(height):
-                        used.add((x + dx, y + dy))
-                        emitted.add((x + dx, y + dy, z))
-
-                x0 = x * step
-                x1 = (x + width) * step
-                y0 = y * step
-                y1 = (y + height) * step
-                z_top = (z + 1) * step
-
-                verts_local = [
-                    (x0 - chunk_origin_world[0], y0 - chunk_origin_world[1], z_top - chunk_origin_world[2]),
-                    (x1 - chunk_origin_world[0], y0 - chunk_origin_world[1], z_top - chunk_origin_world[2]),
-                    (x1 - chunk_origin_world[0], y1 - chunk_origin_world[1], z_top - chunk_origin_world[2]),
-                    (x0 - chunk_origin_world[0], y1 - chunk_origin_world[1], z_top - chunk_origin_world[2]),
-                ]
-                verts_world = [
-                    (x0, y0, z_top),
-                    (x1, y0, z_top),
-                    (x1, y1, z_top),
-                    (x0, y1, z_top),
-                ]
-
-                if self.use_atlas:
-                    scaled_uv = uv_base
-                else:
-                    u0, v0 = uv_base[0]
-                    u1, _ = uv_base[1]
-                    _, v1 = uv_base[2]
-                    du = (u1 - u0) if abs(u1 - u0) > 1e-8 else 1.0
-                    dv = (v1 - v0) if abs(v1 - v0) > 1e-8 else 1.0
-                    scaled_uv = (
-                        (u0, v0),
-                        (u0 + du * width, v0),
-                        (u0 + du * width, v0 + dv * height),
-                        (u0, v0 + dv * height),
-                    )
-
-                vertex_index = self._write_face(
-                    verts_local,
-                    verts_world,
-                    normal,
-                    scaled_uv,
-                    vwriter,
-                    nwriter,
-                    twriter,
-                    prim,
-                    vertex_index,
-                    triangles_out,
-                )
-
-        return vertex_index, emitted
-
-    def _emit_remaining_faces(
+    def _emit_greedy_direction(
         self,
         block_map: Dict[Tuple[int, int, int], int],
         chunk_origin_world: Tuple[float, float, float],
@@ -350,45 +291,105 @@ class ChunkMesher:
         solid_lookup: Optional[Callable[[int, int, int], bool]],
         triangles_out: Optional[List[Tuple[Tuple[float, float, float], Tuple[float, float, float], Tuple[float, float, float]]]],
         vertex_index: int,
-        skip_top: Set[Tuple[int, int, int]],
+        config: _FaceConfig,
     ) -> int:
-        for (wx, wy, wz), block_id in block_map.items():
+        planes: Dict[int, Dict[Tuple[int, int], Tuple[int, Tuple[Tuple[float, float], ...]]]] = {}
+        dir_vec = config.direction
+        axis = config.axis
+        u_axis = config.u_axis
+        v_axis = config.v_axis
+        for coords, block_id in block_map.items():
             if block_id == 0:
                 continue
+            nx = coords[0] + dir_vec[0]
+            ny = coords[1] + dir_vec[1]
+            nz = coords[2] + dir_vec[2]
+            if self._has_solid_neighbor(nx, ny, nz, block_map, solid_lookup):
+                continue
+            plane_coord = coords[axis] + (1 if config.positive else 0)
+            u_coord = coords[u_axis]
+            v_coord = coords[v_axis]
             uv_set = self._uvs_for_block(block_id)
-            world_base = (
-                float(wx) * self._scale,
-                float(wy) * self._scale,
-                float(wz) * self._scale,
-            )
-            local_base = (
-                world_base[0] - chunk_origin_world[0],
-                world_base[1] - chunk_origin_world[1],
-                world_base[2] - chunk_origin_world[2],
-            )
-            for face_dir, offsets, normal in self._face_defs:
-                if face_dir == (0, 0, 1) and (wx, wy, wz) in skip_top:
+            planes.setdefault(plane_coord, {})[(u_coord, v_coord)] = (block_id, uv_set)
+
+        step = self._scale
+        for plane in sorted(planes.keys()):
+            grid = planes[plane]
+            used: Set[Tuple[int, int]] = set()
+            for (u, v) in sorted(grid.keys()):
+                if (u, v) in used:
                     continue
-                nx = wx + face_dir[0]
-                ny = wy + face_dir[1]
-                nz = wz + face_dir[2]
-                if self._has_solid_neighbor(nx, ny, nz, block_map, solid_lookup):
-                    continue
-                verts_local: List[Tuple[float, float, float]] = []
+                block_id, uv_base = grid[(u, v)]
+                width = 1
+                while True:
+                    cell = (u + width, v)
+                    data = grid.get(cell)
+                    if data is None or data[0] != block_id or data[1] != uv_base or cell in used:
+                        break
+                    width += 1
+
+                height = 1
+                while True:
+                    row_v = v + height
+                    row_ok = True
+                    for du in range(width):
+                        cell = (u + du, row_v)
+                        data = grid.get(cell)
+                        if data is None or data[0] != block_id or data[1] != uv_base or cell in used:
+                            row_ok = False
+                            break
+                    if not row_ok:
+                        break
+                    height += 1
+
+                for du in range(width):
+                    for dv in range(height):
+                        used.add((u + du, v + dv))
+
+                axis_world = plane * step
+                u0 = u * step
+                u1 = (u + width) * step
+                v0 = v * step
+                v1 = (v + height) * step
+
                 verts_world: List[Tuple[float, float, float]] = []
-                for (dx, dy, dz), uv in zip(offsets, uv_set):
-                    vx = local_base[0] + dx * self._scale
-                    vy = local_base[1] + dy * self._scale
-                    vz = local_base[2] + dz * self._scale
-                    verts_local.append((vx, vy, vz))
-                    verts_world.append((chunk_origin_world[0] + vx,
-                                         chunk_origin_world[1] + vy,
-                                         chunk_origin_world[2] + vz))
+                verts_local: List[Tuple[float, float, float]] = []
+                for idx in range(4):
+                    coord = [0.0, 0.0, 0.0]
+                    coord[axis] = axis_world
+                    coord[u_axis] = u0 if config.u_bits[idx] == 0 else u1
+                    coord[v_axis] = v0 if config.v_bits[idx] == 0 else v1
+                    world = (coord[0], coord[1], coord[2])
+                    local = (
+                        coord[0] - chunk_origin_world[0],
+                        coord[1] - chunk_origin_world[1],
+                        coord[2] - chunk_origin_world[2],
+                    )
+                    verts_world.append(world)
+                    verts_local.append(local)
+
+                if self.use_atlas:
+                    scaled_uv = uv_base
+                else:
+                    uv00 = uv_base[config.idx00]
+                    uv10 = uv_base[config.idx10]
+                    uv01 = uv_base[config.idx01]
+                    uv_u_vec = (uv10[0] - uv00[0], uv10[1] - uv00[1])
+                    uv_v_vec = (uv01[0] - uv00[0], uv01[1] - uv00[1])
+                    scaled_uv_list: List[Tuple[float, float]] = []
+                    for ub, vb in zip(config.u_bits, config.v_bits):
+                        u_factor = width if ub else 0
+                        v_factor = height if vb else 0
+                        u_val = uv00[0] + uv_u_vec[0] * u_factor + uv_v_vec[0] * v_factor
+                        v_val = uv00[1] + uv_u_vec[1] * u_factor + uv_v_vec[1] * v_factor
+                        scaled_uv_list.append((u_val, v_val))
+                    scaled_uv = tuple(scaled_uv_list)
+
                 vertex_index = self._write_face(
                     verts_local,
                     verts_world,
-                    normal,
-                    uv_set,
+                    config.normal,
+                    scaled_uv,
                     vwriter,
                     nwriter,
                     twriter,
@@ -396,6 +397,7 @@ class ChunkMesher:
                     vertex_index,
                     triangles_out,
                 )
+
         return vertex_index
 
     def _build_render_state(self) -> RenderState:
