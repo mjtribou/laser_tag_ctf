@@ -53,6 +53,7 @@ Key sections in `configs/defaults.json`:
 - `gameplay`: movement speeds, acceleration, spread/recoil, grenade tuning, respawn timers
 - `map`: select the arena layout JSON under `configs/maps/`
 - `cube_atlas`: fallback UV/tint settings when chunking is disabled
+- `gameplay.character_collider`: choose `aabb` or `capsule` for player physics bodies
 - `colors`, `hud`, `audio`, `cosmetics`: team tinting, killfeed TTL, footsteps, nameplates
 - `ragdoll`, `laser_visual`: tweak knockback, beam rendering
 

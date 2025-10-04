@@ -47,7 +47,8 @@
     "grenade_radius": 10.0,
     "grenade_knockback": 100.0,
     "shots_per_mag": 20,
-    "reload_seconds": 1.5
+    "reload_seconds": 1.5,
+    "character_collider": "capsule"
   },
   "map": {
     "file": "configs/maps/csg_showcase.json"

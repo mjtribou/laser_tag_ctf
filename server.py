@@ -43,10 +43,12 @@ from panda3d.bullet import (
     BulletWorld,
     BulletRigidBodyNode,
     BulletBoxShape,
+    BulletCapsuleShape,
     BulletCharacterControllerNode,
     BulletSphereShape,
     BulletTriangleMesh,
     BulletTriangleMeshShape,
+    ZUp,
 )
 from engine.config import get as engine_config_get
 from world.map_adapter import load_map_to_voxels
@@ -93,6 +95,11 @@ class LaserTagServer:
         size_x, size_z = self.mapdata.bounds
         self.cfg["gameplay"]["arena_size_m"] = [size_x, size_z]
         print(f"[map] Loaded '{map_file}' ({size_x:.1f}×{size_z:.1f} m)")
+
+        collider_mode = str(self.cfg.get("gameplay", {}).get("character_collider", "aabb")).strip().lower()
+        if collider_mode not in {"aabb", "capsule"}:
+            collider_mode = "aabb"
+        self._character_collider = collider_mode
 
         # Flag seeds: neutral center flag by default
         cx, cy, cz = getattr(self.mapdata, "neutral_flag_stand", (0.0, 0.0, 0.0))
@@ -414,18 +421,11 @@ class LaserTagServer:
                     pass
 
     def _create_character(self, entity: int, pid: int, pos: Tuple[float, float, float], yaw_rad: float):
-        """Create a kinematic character using an **axis-aligned box** (AABB) shape.
-
-        We keep the Bullet *character controller* but swap the shape to a
-        BulletBoxShape and ensure we never rotate the Bullet node so the collider
-        stays axis-aligned in world space (visuals can still rotate).
-        """
+        """Create a kinematic character collider based on the configured shape."""
         height = float(self.cfg["gameplay"]["player_height"])     # full height
         radius = float(self.cfg["gameplay"]["player_radius"])     # half-width in X/Y
 
-        # Box half-extents: X/Y from radius, Z from half height
-        half = Vec3(radius, radius, height * 0.5)
-        shape = BulletBoxShape(half)
+        shape = self._make_character_shape(height, radius)
         # Step height helps climbing small ledges; make configurable
         step_height = float(self.cfg.get("gameplay", {}).get("step_height", 0.4))
 
@@ -452,6 +452,16 @@ class LaserTagServer:
         self._last_pos[pid] = (pos[0], pos[1], pos[2])
         self._stuck_since[pid] = 0.0
         self._last_safe_pos[pid] = (pos[0], pos[1], pos[2])
+
+    def _make_character_shape(self, height: float, radius: float):
+        mode = getattr(self, "_character_collider", "aabb")
+        if mode == "capsule":
+            cap_radius = max(0.05, radius)
+            cylinder = max(0.0, height - 2.0 * cap_radius)
+            return BulletCapsuleShape(cap_radius, cylinder, ZUp)
+
+        half = Vec3(radius, radius, max(0.05, height * 0.5))
+        return BulletBoxShape(half)
 
     def _remove_character(self, pid: int):
         entity = self.pid_to_entity.get(pid)
