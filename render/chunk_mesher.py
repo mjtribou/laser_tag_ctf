@@ -390,7 +390,7 @@ class ChunkMesher:
 
     def _build_render_state(self) -> RenderState:
         attribs = []
-        attribs.append(CullFaceAttrib.make(CullFaceAttrib.MCullCounterClockwise))
+        attribs.append(CullFaceAttrib.make(CullFaceAttrib.MCullClockwise))
         attribs.append(TransparencyAttrib.make(TransparencyAttrib.M_none))
         if self._material is not None:
             attribs.append(MaterialAttrib.make(self._material))
