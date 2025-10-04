@@ -209,20 +209,22 @@ class CombatSystem(System):
         ):
             pos, phys, inputs, weapon, health, info = comps
 
-            if inputs.grenade_charge and inputs.grenade_charge > 0.0:
-                self.grenade_requests.append(GrenadeRequest(entity, info.pid, float(inputs.grenade_charge)))
-                inputs.grenade_charge = 0.0
-
             if weapon.shots_remaining <= 0 and now_t >= weapon.reload_end:
                 weapon.shots_remaining = weapon.shots_per_mag
 
             if not health.alive:
+                if inputs.grenade_charge and inputs.grenade_charge > 0.0:
+                    inputs.grenade_charge = 0.0
                 # Decay recoil even while dead so it resets when respawning.
                 if weapon.recoil_accum > 0.0 and decay_hz > 0.0:
                     weapon.recoil_accum *= math.exp(-decay_hz * max(0.0, dt))
                     if weapon.recoil_accum < 1e-4:
                         weapon.recoil_accum = 0.0
                 continue
+
+            if inputs.grenade_charge and inputs.grenade_charge > 0.0:
+                self.grenade_requests.append(GrenadeRequest(entity, info.pid, float(inputs.grenade_charge)))
+                inputs.grenade_charge = 0.0
 
             if weapon.recoil_accum > 0.0 and decay_hz > 0.0:
                 weapon.recoil_accum *= math.exp(-decay_hz * max(0.0, dt))

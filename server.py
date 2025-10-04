@@ -1101,6 +1101,8 @@ class LaserTagServer:
             owner = self.gs.players.get(req.owner_pid)
             if owner is None:
                 continue
+            if not owner.alive:
+                continue
             self._spawn_grenade(owner, req.power)
             if req.owner_pid in self.inputs:
                 self.inputs[req.owner_pid]["grenade"] = 0.0
