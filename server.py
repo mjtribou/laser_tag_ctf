@@ -130,6 +130,7 @@ class LaserTagServer:
         self._state_history: List[Tuple[float, Dict[int, Tuple[float,float,float]]]] = []
         self.killfeed: List[Dict[str, Any]] = []
         self.messagefeed: List[Dict[str, Any]] = []
+        self.nav_graph = None
 
         # ECS world and entity mappings
         self.ecs = ECSWorld()
@@ -276,7 +277,7 @@ class LaserTagServer:
 
     def _build_chunk_colliders(self) -> Tuple[int, int, int]:
         try:
-            grid, registry = load_map_to_voxels(self.map_file)
+            grid, registry, self.nav_graph = load_map_to_voxels(self.map_file)
         except Exception as exc:
             raise RuntimeError(f"[perf] chunk collider build failed to load voxels: {exc}") from exc
 

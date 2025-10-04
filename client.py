@@ -723,6 +723,7 @@ class GameApp(ShowBase):
         self._last_state_log = 0.0
 
         perf_dump.maybe_dump(self)
+        self.nav_graph = None
 
     def center_mouse(self):
         wp = WindowProperties()
@@ -732,9 +733,11 @@ class GameApp(ShowBase):
 
     def _build_chunked_world(self, map_file: str) -> None:
         try:
-            grid, block_registry = load_map_to_voxels(map_file)
+            grid, block_registry, nav_graph = load_map_to_voxels(map_file)
         except Exception as exc:
             raise RuntimeError(f"[perf] chunk build failed to load voxels: {exc}") from exc
+
+        self.nav_graph = nav_graph
 
         chunk_size = self._chunk_size_from_config()
         cube_size = float(getattr(self.mapdata, "cube_size", 1.0) or 1.0)

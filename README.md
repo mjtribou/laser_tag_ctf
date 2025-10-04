@@ -72,6 +72,20 @@ Example snippet:
 ```
 The above carves a square hole out of a larger platform while keeping the result voxel-aligned to `cube_size`.
 
+Tactical navigation metadata can be embedded under an optional `nav` block:
+
+```json
+"nav": {
+  "nodes": [
+    { "id": "mid_cover", "pos": [0, 12, 0], "type": "cover", "tags": ["mid", "defend"], "facing": [0, -1, 0], "radius": 1.8 }
+  ],
+  "links": [
+    { "from": "mid_cover", "to": "enemy_ramp", "weight": 1.2 }
+  ]
+}
+```
+Nodes describe reusable tactical anchor points (cover, perch, flank, regroup) with optional tags, facing vectors, and influence radius; links specify directed or bidirectional connections that future bot logic can traverse.
+
 Clients mirror many of these options in `configs/client_settings.json` (video, audio, HUD, cosmetics, discovery preferences).
 
 ## Architecture Notes

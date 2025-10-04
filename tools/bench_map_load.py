@@ -119,7 +119,7 @@ def main(argv: List[str]) -> int:
 
     t_start = time.perf_counter()
     mapdata = load_map_from_file(map_path)
-    grid, registry = load_map_to_voxels(map_path)
+    grid, registry, _ = load_map_to_voxels(map_path)
     load_time = time.perf_counter() - t_start
 
     cube_size = float(getattr(mapdata, "cube_size", 1.0) or 1.0)

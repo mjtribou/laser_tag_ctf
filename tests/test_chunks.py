@@ -3,7 +3,7 @@ from world.map_adapter import load_map_to_voxels
 
 
 def test_chunk_iteration_covers_voxels_once():
-    grid, _ = load_map_to_voxels("configs/maps/block_demo.json")
+    grid, _, _ = load_map_to_voxels("configs/maps/block_demo.json")
     index = ChunkIndex(grid, chunk_size=(4, 4, 4))
 
     seen = set()

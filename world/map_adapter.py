@@ -5,7 +5,7 @@ import math
 from dataclasses import dataclass
 from typing import Dict, Iterable, Tuple
 
-from game.map_gen import load_from_file
+from game.map_gen import load_from_file, TacticalLink, TacticalNode
 from world.voxel_grid import VoxelGrid
 
 
@@ -17,6 +17,12 @@ class BlockDef:
 
 
 BlockRegistry = Dict[int, BlockDef]
+
+
+@dataclass(frozen=True)
+class TacticalGraph:
+    nodes: Dict[str, TacticalNode]
+    links: Tuple[TacticalLink, ...]
 
 
 def _pos_to_index(pos: float, cube_size: float) -> int:
@@ -41,7 +47,7 @@ def _compute_bounds(indices: Iterable[Tuple[int, int, int]]) -> Tuple[Tuple[int,
     return (min_x, min_y, min_z), (max_x, max_y, max_z)
 
 
-def load_map_to_voxels(json_path: str) -> Tuple[VoxelGrid, BlockRegistry]:
+def load_map_to_voxels(json_path: str) -> Tuple[VoxelGrid, BlockRegistry, TacticalGraph]:
     """Load a map JSON file into a dense voxel grid."""
     mapdata = load_from_file(json_path)
     cube = float(getattr(mapdata, "cube_size", 1.0) or 1.0)
@@ -87,4 +93,9 @@ def load_map_to_voxels(json_path: str) -> Tuple[VoxelGrid, BlockRegistry]:
     if filled != solid_count:
         raise AssertionError("Voxel population mismatch vs block count")
 
-    return grid, registry
+    nav_graph = TacticalGraph(
+        nodes={node.node_id: node for node in getattr(mapdata, "nav_nodes", [])},
+        links=tuple(getattr(mapdata, "nav_links", [])),
+    )
+
+    return grid, registry, nav_graph
