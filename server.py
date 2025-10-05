@@ -132,6 +132,7 @@ class LaserTagServer:
         self.messagefeed: List[Dict[str, Any]] = []
         self.nav_graph = None
         self.bot_debug: Dict[int, Dict[str, Any]] = {}
+        self.spectator_clients: List[asyncio.StreamWriter] = []
 
         # ECS world and entity mappings
         self.ecs = ECSWorld()
@@ -551,6 +552,12 @@ class LaserTagServer:
         player_view = self.player_views.pop(pid, None)
         if player_view is not None:
             print(f"[leave] pid={pid} name={player_view.name}")
+
+    def _remove_spectator(self, writer: asyncio.StreamWriter) -> None:
+        try:
+            self.spectator_clients.remove(writer)
+        except ValueError:
+            pass
 
     def respawn_player(self, pid: int):
         p = self.gs.players.get(pid)
@@ -1456,11 +1463,32 @@ class LaserTagServer:
             await writer.wait_closed()
             return
 
+        spectator = bool(hello.get("spectator"))
         name = hello.get("name", "Player")
+
+        if spectator:
+            self.spectator_clients.append(writer)
+            await send_json(writer, {"type": "welcome", "pid": None, "team": None, "spectator": True})
+            try:
+                while True:
+                    msg = await read_json(reader)
+                    if not msg:
+                        break
+            except Exception as e:
+                print(f"[spectator] {addr} error: {e}")
+            finally:
+                self._remove_spectator(writer)
+                try:
+                    writer.close()
+                    await writer.wait_closed()
+                except Exception:
+                    pass
+            return
+
         pid = self.add_player(name, is_bot=False)
         self.clients[pid] = writer
 
-        await send_json(writer, {"type": "welcome", "pid": pid, "team": self.gs.players[pid].team})
+        await send_json(writer, {"type": "welcome", "pid": pid, "team": self.gs.players[pid].team, "spectator": False})
 
         try:
             while True:
@@ -1498,6 +1526,19 @@ class LaserTagServer:
                     dead.append(pid)
             for pid in dead:
                 self.remove_player(pid)
+            dead_specs = []
+            for w in list(self.spectator_clients):
+                try:
+                    await send_json(w, s)
+                except Exception:
+                    dead_specs.append(w)
+            for w in dead_specs:
+                self._remove_spectator(w)
+                try:
+                    w.close()
+                    await w.wait_closed()
+                except Exception:
+                    pass
             await asyncio.sleep(snap_dt)
 
     # ---------- Main game loop ----------

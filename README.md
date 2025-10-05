@@ -38,6 +38,10 @@ To join a specific host:
 ```bash
 python client.py --host 192.168.1.50 --port 50007 --name "Player"
 ```
+Spectator mode (free-fly camera, no gameplay interaction) is available for development:
+```bash
+python client.py --spectator
+```
 Additional preferences (FOV, HUD scale, audio, keybinds, etc.) can be set in `configs/client_settings.json`. The client will remember the last server in `configs/client_state.json`.
 
 ## Controls (default)

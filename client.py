@@ -413,7 +413,7 @@ class AsyncRunner:
 
 
 class NetworkClient:
-    def __init__(self, cfg, name="Player", team_pref: str = "auto"):
+    def __init__(self, cfg, name="Player", team_pref: str = "auto", spectator: bool = False):
         self.cfg = cfg
         self.name = name
         self.team_pref = team_pref
@@ -423,13 +423,22 @@ class NetworkClient:
         self.team = None
         self.state = None
         self.last_input = {}
+        self.spectator = bool(spectator)
 
     async def connect(self, host: str, port: int):
         self.reader, self.writer = await asyncio.open_connection(host, port)
-        await send_json(self.writer, {"type": "hello", "name": self.name, "team_preference": self.team_pref})
+        await send_json(
+            self.writer,
+            {
+                "type": "hello",
+                "name": self.name,
+                "team_preference": self.team_pref,
+                "spectator": self.spectator,
+            },
+        )
         welcome = await read_json(self.reader)
-        self.pid = welcome["pid"]
-        self.team = welcome["team"]
+        self.pid = welcome.get("pid")
+        self.team = welcome.get("team")
         print(f"[net] connected. pid={self.pid} team={self.team}")
 
     async def recv_state_loop(self, on_state):
@@ -444,10 +453,124 @@ class NetworkClient:
                 on_state(msg)
 
     async def send_input(self, data: Dict[str, Any]):
+        if self.spectator or self.pid is None:
+            return
         self.last_input = data
         await send_json(self.writer, {"type": "input", "time": time.time(), "data": data})
 
 
+class ClientRole:
+    def __init__(self, app: "GameApp") -> None:
+        self.app = app
+
+    def setup(self) -> None:
+        pass
+
+    def on_connected(self, welcome: Dict[str, Any]) -> None:
+        pass
+
+    def update_post_render(self, dt: float, latest_snapshot: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        return None
+
+
+class PlayerRole(ClientRole):
+    def setup(self) -> None:
+        self.app.crosshair.show()
+        self.app.ammo_text.show()
+
+    def on_connected(self, welcome: Dict[str, Any]) -> None:
+        self.app.local_team = self.app.client.team
+
+    def update_post_render(self, dt: float, latest_snapshot: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        app = self.app
+
+        mx = 0.0
+        mz = 0.0
+        if "w" in app.keys:
+            mz += 1
+        if "s" in app.keys:
+            mz -= 1
+        if "a" in app.keys:
+            mx -= 1
+        if "d" in app.keys:
+            mx += 1
+
+        fire_pressed = app.mouseWatcherNode.is_button_down(MouseButton.one())
+        reloading_now = app.render_time < app.reload_end
+
+        actively_shooting = fire_pressed and not reloading_now and app.shots_left > 0
+        if not actively_shooting and app.recoil_decay_hz > 0.0:
+            factor = math.exp(-app.recoil_decay_hz * dt)
+            app.aim_pitch_offset *= factor
+            app.aim_yaw_offset *= factor
+
+        # Move crosshair to visualize aim offsets
+        try:
+            lens = app.camLens
+            fov = lens.getFov()
+            hfov = math.radians(float(fov[0]))
+            vfov = math.radians(float(fov[1]))
+            x_norm = math.tan(math.radians(app.aim_yaw_offset)) / max(1e-6, math.tan(0.5 * hfov))
+            y_norm = math.tan(math.radians(app.aim_pitch_offset)) / max(1e-6, math.tan(0.5 * vfov))
+            aspect = app.getAspectRatio()
+            x = max(-aspect, min(aspect, x_norm * aspect))
+            y = max(-1.0, min(1.0, y_norm))
+            app.crosshair.setPos(x, y)
+        except Exception:
+            app.crosshair.setPos(0.01 * app.aim_yaw_offset, 0.01 * app.aim_pitch_offset)
+
+        data = {
+            "mx": mx,
+            "mz": mz,
+            "jump": "space" in app.keys,
+            "crouch": ("control" in app.keys) if not app._toggle_crouch else bool(getattr(app, "_crouch_toggle_state", False)),
+            "walk": "shift" in app.keys,
+            "fire": False,
+            "interact": "e" in app.keys,
+            "yaw": app.yaw,
+            "pitch": app.pitch,
+        }
+
+        min_dt = 1.0 / max(1e-6, app.rapid_fire_rate)
+        if fire_pressed and app.render_time >= app.reload_end and app.shots_left > 0 and (app.render_time - app.last_local_fire) >= min_dt:
+            app._apply_recoil()
+            data["fire"] = True
+            data["fire_t"] = app.render_time
+            data["yaw"] = app.yaw + app.aim_yaw_offset
+            data["pitch"] = app.pitch + app.aim_pitch_offset
+            app.shots_left -= 1
+            app.last_local_fire = app.render_time
+            if app.shots_left == 0:
+                app.reload_end = app.render_time + app.reload_seconds
+        else:
+            data["fire"] = False
+        app.ammo_text.setText(str(app.shots_left))
+
+        if app.mouseWatcherNode.is_button_down(MouseButton.three()):
+            if app._grenade_hold_start is None:
+                app._grenade_hold_start = app.render_time
+        elif app._grenade_hold_start is not None:
+            hold = max(0.0, app.render_time - app._grenade_hold_start)
+            data["grenade"] = hold
+            app._grenade_hold_start = None
+
+        app.prev_fire_pressed = fire_pressed
+        app.was_reloading = reloading_now
+
+        return data
+
+
+class SpectatorRole(ClientRole):
+    def setup(self) -> None:
+        self.app.crosshair.hide()
+        self.app.ammo_text.hide()
+
+    def on_connected(self, welcome: Dict[str, Any]) -> None:
+        self.app.local_team = None
+
+    def update_post_render(self, dt: float, latest_snapshot: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
+        self.app._update_spectator_controls(dt)
+        return None
 def _angle_lerp_deg(a: float, b: float, t: float) -> float:
     """
     Shortest-path spherical (mod 360) interpolation for degrees.
@@ -458,12 +581,25 @@ def _angle_lerp_deg(a: float, b: float, t: float) -> float:
 
 
 class GameApp(ShowBase):
-    def __init__(self, cfg, host: str, port: int, name: str, interp_delay: float, interp_predict: float = 0.0, settings: Dict[str, Any] = None, team_pref: str = "auto", manual_host: bool = False):
+    def __init__(
+        self,
+        cfg,
+        host: str,
+        port: int,
+        name: str,
+        interp_delay: float,
+        interp_predict: float = 0.0,
+        settings: Dict[str, Any] = None,
+        team_pref: str = "auto",
+        manual_host: bool = False,
+        spectator: bool = False,
+    ):
         ShowBase.__init__(self)
         self.set_background_color(0.05, 0.05, 0.07, 1)
         self.disableMouse()
 
         self.settings = settings or {}
+        self.spectator = bool(spectator)
 
         cam_cfg = cfg.get("camera", {})
         near = float(cam_cfg.get("near", 0.03))
@@ -479,7 +615,7 @@ class GameApp(ShowBase):
             pass
 
         self.cfg = cfg
-        self.client = NetworkClient(cfg, name=name, team_pref=team_pref)
+        self.client = NetworkClient(cfg, name=name, team_pref=team_pref, spectator=self.spectator)
         self.host, self.port = host, port
         self.manual_host = bool(manual_host)
         self.yaw, self.pitch = 0.0, 0.0
@@ -532,6 +668,10 @@ class GameApp(ShowBase):
         size_x, size_y = self.mapdata.bounds
         cfg["gameplay"]["arena_size_m"] = [size_x, size_y]
         print(f"[map] Loaded '{map_file}' ({size_x:.1f}×{size_y:.1f} m)")
+        if self.spectator:
+            self.spec_pos = Vec3(0.0, -max(12.0, 0.4 * size_y), 8.0)
+        else:
+            self.spec_pos = None
 
         # --- Obstacles: glTF cube + simplepbr with per-instance UV remap ---
         # Enable simplepbr for proper glTF PBR if available
@@ -623,7 +763,10 @@ class GameApp(ShowBase):
         self.cosmetics = CosmeticsManager(self)
 
         # camera init
-        self.camera.setPos(0, -15, 3)
+        if self.spectator and self.spec_pos is not None:
+            self.camera.setPos(self.spec_pos)
+        else:
+            self.camera.setPos(0, -15, 3)
         self.mouse_locked = False
         self.center_mouse()
 
@@ -703,6 +846,9 @@ class GameApp(ShowBase):
         self.reload_end = 0.0
         self.last_local_fire = 0.0
         self.ammo_text = OnscreenText(text=str(self.shots_left), pos=(1.25, -0.95), fg=(1,1,1,1), align=TextNode.ARight, scale=0.07, mayChange=True)
+        if self.spectator:
+            self.crosshair.hide()
+            self.ammo_text.hide()
         self.scoreboard = Scoreboard(self)
         self._bot_debug_state: Dict[str, Any] = {}
         self._bot_debug_enabled = bool(int(os.environ.get("BOT_DEBUG", "0")))
@@ -737,6 +883,9 @@ class GameApp(ShowBase):
 
         perf_dump.maybe_dump(self)
         self.nav_graph = None
+        self.role = SpectatorRole(self) if self.spectator else PlayerRole(self)
+        self.role.setup()
+
 
     def center_mouse(self):
         wp = WindowProperties()
@@ -1418,19 +1567,16 @@ class GameApp(ShowBase):
                     gnode.setGeomState(i, new_state)
 
     def _render_flags(self, s0, s1, alpha):
-        # Merge the two snapshots' flags into a dict by team id for interpolation
         f0 = {f.get("team"): f for f in (s0.get("flags", []) if s0 else [])}
         f1 = {f.get("team"): f for f in (s1.get("flags", []) if s1 else [])}
-        teams = set(f0.keys()) | set(f1.keys())
+        teams = {team for team in set(f0.keys()) | set(f1.keys()) if team is not None}
 
-        # Remove nodes for flags no longer present
         for team in list(self.flag_nodes.keys()):
             if team not in teams:
                 np = self.flag_nodes.pop(team, None)
                 if np is not None:
                     np.removeNode()
 
-        # Create/update nodes
         for team in teams:
             a0 = f0.get(team)
             a1 = f1.get(team) if s1 is not s0 else f0.get(team)
@@ -1448,7 +1594,6 @@ class GameApp(ShowBase):
 
             root = self.flag_nodes.get(team)
             if root is None:
-                # Create a root so we can offset the model relative to (x,y,z)
                 root = self.render.attachNewNode(f"flag-{team}")
                 try:
                     scale = float(self.cfg.get("flag", {}).get("scale", 1.2))
@@ -1456,13 +1601,44 @@ class GameApp(ShowBase):
                     scale = 1.2
                 root.setScale(scale)
                 model_np = self.flag_template.copyTo(root)
-                # Apply tint
                 model_np.setColorScale(self._get_flag_color(team))
-                # Do not add vertical offset: model origin is at base
                 self.flag_nodes[team] = root
 
-            # Position
             root.setPos(x, y, z)
+
+    def _update_spectator_controls(self, dt: float) -> None:
+        if self.spec_pos is None:
+            self.spec_pos = Vec3(self.camera.getPos())
+        speed = 12.0
+        if "shift" in self.keys:
+            speed *= 2.0
+        yaw_rad = math.radians(self.yaw)
+        forward = Vec3(-math.sin(yaw_rad), math.cos(yaw_rad), 0.0)
+        if forward.lengthSquared() > 0:
+            forward.normalize()
+        right = Vec3(forward.getY(), -forward.getX(), 0.0)
+        if right.lengthSquared() > 0:
+            right.normalize()
+        move = Vec3(0, 0, 0)
+        if "w" in self.keys:
+            move += forward
+        if "s" in self.keys:
+            move -= forward
+        if "a" in self.keys:
+            move -= right
+        if "d" in self.keys:
+            move += right
+        if move.lengthSquared() > 0:
+            move.normalize()
+        move *= speed * dt
+        vertical = 0.0
+        if "space" in self.keys:
+            vertical += speed * dt
+        if "control" in self.keys:
+            vertical -= speed * dt
+        self.spec_pos += move
+        self.spec_pos.z = max(1.0, self.spec_pos.z + vertical)
+        self.camera.setPos(self.spec_pos)
 
     def _clip_to_obstacles(self, x, y, z, radius=0.38, epsilon=0.02):
         """
@@ -1488,7 +1664,7 @@ class GameApp(ShowBase):
                 dx = x - cx
                 dy = y - cy
                 if abs(dx) <= hx and abs(dy) <= hy:
-                    # Inside → push out along least-penetration axis
+                    # Inside -> push out along least-penetration axis
                     push_x = (hx - abs(dx)) + epsilon
                     push_y = (hy - abs(dy)) + epsilon
                     if push_x < push_y:
@@ -1505,6 +1681,29 @@ class GameApp(ShowBase):
     # legacy helpers replaced by HudFeed
 
     def update_task(self, task):
+        # Update camera orientation based on relative mouse input
+        dx = dy = 0.0
+        if (
+            self.mouse_locked
+            and self.win is not None
+            and getattr(self, "mouseWatcherNode", None) is not None
+        ):
+            try:
+                dx, dy = self.poll_mouse()
+            except Exception:
+                dx = dy = 0.0
+
+        if dx or dy:
+            self.yaw = (self.yaw - dx) % 360.0
+            pitch_delta = -dy if self._invert_y else dy
+            self.pitch = max(-89.0, min(89.0, self.pitch + pitch_delta))
+
+        # Apply latest orientation to the active camera every frame
+        try:
+            self.camera.setHpr(self.yaw, self.pitch, 0.0)
+        except Exception:
+            pass
+
         # advance smoothed render_time toward latest snapshot time
         target = self.latest_server_time - self.interp_delay + self.interp_predict
         dt = ClockObject.getGlobalClock().getDt()
@@ -1857,105 +2056,26 @@ class GameApp(ShowBase):
         else:
             self.scoreboard.hide()
 
-        # === Build & send inputs ===
-        mx = 0.0
-        mz = 0.0
-        if "w" in self.keys:
-            mz += 1
-        if "s" in self.keys:
-            mz -= 1
-        if "a" in self.keys:
-            mx -= 1
-        if "d" in self.keys:
-            mx += 1
-
-        # mouse deltas → local yaw/pitch (degrees)
-        dx, dy = self.poll_mouse()
-        invert = self._invert_y
-        self.yaw += -dx
-        self.pitch += (-dy if invert else dy)
-        self.pitch = max(-90.0, min(90.0, self.pitch))
-
-        # apply camera orientation (HPR). Position is handled above via interpolation.
-        # Note: recoil no longer moves the camera; it only affects aim offsets + crosshair.
-        self.camera.setHpr(self.yaw, self.pitch, 0)
-
-        # Firing/reloading state used to control recoil reset/decay
-        fire_pressed = self.mouseWatcherNode.is_button_down(MouseButton.one())
+        # === Build & send inputs handled by role ===
+        fire_pressed = False
+        mouse_watcher = getattr(self, "mouseWatcherNode", None)
+        if mouse_watcher is not None:
+            try:
+                fire_pressed = mouse_watcher.is_button_down(MouseButton.one())
+            except Exception:
+                fire_pressed = False
         reloading_now = self.render_time < self.reload_end
-
-        # Smoothly decay offsets back to center when not actively holding fire (exponential by Hz)
-        actively_shooting = fire_pressed and not reloading_now and self.shots_left > 0
-        if not actively_shooting and self.recoil_decay_hz > 0.0:
-            dt_decay = max(0.0, ClockObject.getGlobalClock().getDt())
-            factor = math.exp(-self.recoil_decay_hz * dt_decay)
-            self.aim_pitch_offset *= factor
-            self.aim_yaw_offset *= factor
-
-        # Move crosshair to visualize aim offsets
-        try:
-            lens = self.camLens
-            fov = lens.getFov()  # Vec2(hfov, vfov) in degrees
-            hfov = math.radians(float(fov[0]))
-            vfov = math.radians(float(fov[1]))
-            # Map angular offset to normalized screen offset (fractions of half-screen)
-            x_norm = math.tan(math.radians(self.aim_yaw_offset)) / max(1e-6, math.tan(0.5 * hfov))
-            y_norm = math.tan(math.radians(self.aim_pitch_offset)) / max(1e-6, math.tan(0.5 * vfov))
-            # Convert to aspect2d coordinates: horizontal half-range is aspect, vertical is 1
-            aspect = self.getAspectRatio()
-            x = max(-aspect, min(aspect, x_norm * aspect))
-            y = max(-1.0, min(1.0, y_norm))
-            self.crosshair.setPos(x, y)
-        except Exception:
-            # Fallback: small linear offset if lens data is unavailable
-            self.crosshair.setPos(0.01 * self.aim_yaw_offset, 0.01 * self.aim_pitch_offset)
-
-        data = {
-            "mx": mx,
-            "mz": mz,
-            "jump": "space" in self.keys,
-            "crouch": ("control" in self.keys) if not self._toggle_crouch else bool(getattr(self, "_crouch_toggle_state", False)),
-            "walk": "shift" in self.keys,
-            "fire": False,
-            "interact": "e" in self.keys,
-            "yaw": self.yaw,
-            "pitch": self.pitch,
-        }
-
-        min_dt = 1.0 / max(1e-6, self.rapid_fire_rate)
-        can_fire = fire_pressed and self.render_time >= self.reload_end and self.shots_left > 0 and (self.render_time - self.last_local_fire) >= min_dt
-        if can_fire:
-            self._apply_recoil()
-            data["fire"] = True
-            data["fire_t"] = self.render_time
-            # Apply aim offsets only to the shot direction (not view orientation)
-            data["yaw"] = self.yaw + self.aim_yaw_offset
-            data["pitch"] = self.pitch + self.aim_pitch_offset
-            self.shots_left -= 1
-            self.last_local_fire = self.render_time
-            if self.shots_left == 0:
-                self.reload_end = self.render_time + self.reload_seconds
-        else:
-            data["fire"] = False
-        self.ammo_text.setText(str(self.shots_left))
-
-        # Right mouse for grenade throw
-        if self.mouseWatcherNode.is_button_down(MouseButton.three()):
-            if self._grenade_hold_start is None:
-                self._grenade_hold_start = self.render_time
-        elif self._grenade_hold_start is not None:
-            hold = max(0.0, self.render_time - self._grenade_hold_start)
-            data["grenade"] = hold
-            self._grenade_hold_start = None
-
-        if self.client.writer:
-            self.net_runner.run_coro(self.client.send_input(data))
 
         # Update edge trackers for next frame
         self.prev_fire_pressed = fire_pressed
         self.was_reloading = reloading_now
 
         # Update debug netgraph overlay
+
+        data = self.role.update_post_render(dt, latest)
+        if data and self.client.writer:
+            self.net_runner.run_coro(self.client.send_input(data))
+
         if self._netgraph_enabled and self._netgraph is not None:
             try:
                 ping = 0
@@ -1996,7 +2116,7 @@ class GameApp(ShowBase):
                 return
 
             self.host, self.port = host, port
-            self.local_team = self.client.team
+            self.role.on_connected({"pid": self.client.pid, "team": self.client.team})
             self.net_runner.run_coro(self.client.recv_state_loop(self.on_state))
 
         future.add_done_callback(_after_connect)
@@ -2098,6 +2218,7 @@ def main():
     ap.add_argument("--name", default=None)
     ap.add_argument("--host", default=None, help="Server host; omit to auto-discover on LAN")
     ap.add_argument("--port", type=int, default=None)
+    ap.add_argument("--spectator", action="store_true", help="Join without spawning and free-fly the camera")
     ap.add_argument(
         "--interp_delay",
         type=float,
@@ -2151,6 +2272,7 @@ def main():
         settings=settings,
         team_pref=team_pref,
         manual_host=(args.host is not None and args.host != ""),
+        spectator=args.spectator,
     )
 
     # FPS meter and cap
