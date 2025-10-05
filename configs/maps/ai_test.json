@@ -1,1677 +1,1825 @@
 {
   "version": 1,
-  "bounds": [160, 48],
+  "bounds": [
+    160,
+    48
+  ],
   "cube_size": 1.0,
   "agent_radius": 0.5,
-  "red_base": [-70.0, 0.0, 0.0],
-  "blue_base": [70.0, 0.0, 0.0],
-  "neutral_flag_stand": [0.0, 0.0, 0.0],
+  "red_base": [
+    -70.0,
+    0.0,
+    0.0
+  ],
+  "blue_base": [
+    70.0,
+    0.0,
+    0.0
+  ],
+  "neutral_flag_stand": [
+    0.0,
+    0.0,
+    0.0
+  ],
   "blocks": [
-    { "pos": [0.0, 0.0, 0.5], "size": [152.0, 40.0, 1.0], "box_type": 0 },
-    { "pos": [-32.0, -12.0, 1.5], "size": [10.0, 8.0, 3.0], "box_type": 1 },
-    { "pos": [-32.0, 12.0, 1.5], "size": [10.0, 8.0, 3.0], "box_type": 1 },
-    { "pos": [-20.0, 0.0, 2.5], "size": [8.0, 12.0, 5.0], "box_type": 1 },
-    { "pos": [32.0, -12.0, 1.5], "size": [10.0, 8.0, 3.0], "box_type": 2 },
-    { "pos": [32.0, 12.0, 1.5], "size": [10.0, 8.0, 3.0], "box_type": 2 },
-    { "pos": [20.0, 0.0, 2.5], "size": [8.0, 12.0, 5.0], "box_type": 2 },
-    { "pos": [0.0, 0.0, 2.5], "size": [12.0, 6.0, 5.0], "box_type": 3 },
-    { "pos": [0.0, 18.0, 1.5], "size": [16.0, 6.0, 3.0], "box_type": 0 },
-    { "pos": [0.0, -18.0, 1.5], "size": [16.0, 6.0, 3.0], "box_type": 0 }
+    {
+      "pos": [
+        0.0,
+        0.0,
+        0.5
+      ],
+      "size": [
+        152.0,
+        40.0,
+        1.0
+      ],
+      "box_type": 0
+    },
+    {
+      "pos": [
+        -32.0,
+        -12.0,
+        1.5
+      ],
+      "size": [
+        10.0,
+        8.0,
+        3.0
+      ],
+      "box_type": 1
+    },
+    {
+      "pos": [
+        -32.0,
+        12.0,
+        1.5
+      ],
+      "size": [
+        10.0,
+        8.0,
+        3.0
+      ],
+      "box_type": 1
+    },
+    {
+      "pos": [
+        -20.0,
+        0.0,
+        2.5
+      ],
+      "size": [
+        8.0,
+        12.0,
+        5.0
+      ],
+      "box_type": 1
+    },
+    {
+      "pos": [
+        32.0,
+        -12.0,
+        1.5
+      ],
+      "size": [
+        10.0,
+        8.0,
+        3.0
+      ],
+      "box_type": 2
+    },
+    {
+      "pos": [
+        32.0,
+        12.0,
+        1.5
+      ],
+      "size": [
+        10.0,
+        8.0,
+        3.0
+      ],
+      "box_type": 2
+    },
+    {
+      "pos": [
+        20.0,
+        0.0,
+        2.5
+      ],
+      "size": [
+        8.0,
+        12.0,
+        5.0
+      ],
+      "box_type": 2
+    },
+    {
+      "pos": [
+        5.0,
+        0.0,
+        2.5
+      ],
+      "size": [
+        4.0,
+        6.0,
+        5.0
+      ],
+      "box_type": 3
+    },
+    {
+      "pos": [
+        -5.0,
+        0.0,
+        2.5
+      ],
+      "size": [
+        4.0,
+        6.0,
+        5.0
+      ],
+      "box_type": 3
+    },
+    {
+      "pos": [
+        0.0,
+        18.0,
+        1.5
+      ],
+      "size": [
+        16.0,
+        6.0,
+        3.0
+      ],
+      "box_type": 0
+    },
+    {
+      "pos": [
+        0.0,
+        -18.0,
+        1.5
+      ],
+      "size": [
+        16.0,
+        6.0,
+        3.0
+      ],
+      "box_type": 0
+    }
   ],
   "nav": {
     "nodes": [
       {
-        "id": "b1_east_0",
+        "id": "corner_0",
         "pos": [
-          -25.75,
-          -8.75,
-          0.0
+          -37.4,
+          -15.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SE",
           "cover",
           "peek",
-          "block:1",
           "side:east",
-          "corner:NE",
+          "side:south",
           "team:red_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          -0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b1_east_1",
+        "id": "corner_1",
         "pos": [
-          -25.75,
-          -15.25,
-          0.0
+          -37.4,
+          -8.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NE",
           "cover",
           "peek",
-          "block:1",
           "side:east",
-          "corner:SE",
+          "side:north",
           "team:red_area"
         ],
         "facing": [
-          0.0,
-          -1.0,
+          -0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b1_west_2",
+        "id": "corner_2",
         "pos": [
-          -38.25,
-          -8.75,
-          0.0
+          -37.4,
+          8.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SE",
           "cover",
           "peek",
-          "block:1",
-          "side:west",
-          "corner:NW",
+          "side:east",
+          "side:south",
           "team:red_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          -0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b1_west_3",
+        "id": "corner_3",
         "pos": [
-          -38.25,
-          -15.25,
-          0.0
+          -37.4,
+          15.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NE",
           "cover",
           "peek",
-          "block:1",
-          "side:west",
-          "corner:SW",
+          "side:east",
+          "side:north",
           "team:red_area"
         ],
         "facing": [
-          0.0,
-          -1.0,
+          -0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b1_north_4",
+        "id": "corner_4",
         "pos": [
-          -27.75,
-          -6.75,
-          0.0
+          -36.6,
+          -16.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NW",
           "cover",
           "peek",
-          "block:1",
           "side:north",
-          "corner:NE",
+          "side:west",
           "team:red_area"
         ],
         "facing": [
-          1.0,
-          0.0,
+          0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b1_north_5",
+        "id": "corner_5",
         "pos": [
-          -36.25,
-          -6.75,
-          0.0
+          -36.6,
+          -7.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SW",
           "cover",
           "peek",
-          "block:1",
-          "side:north",
-          "corner:NW",
+          "side:south",
+          "side:west",
           "team:red_area"
         ],
         "facing": [
-          -1.0,
-          0.0,
+          0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b1_south_6",
+        "id": "corner_6",
         "pos": [
-          -27.75,
-          -17.25,
-          0.0
+          -36.6,
+          7.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NW",
           "cover",
           "peek",
-          "block:1",
-          "side:south",
-          "corner:SE",
+          "side:north",
+          "side:west",
           "team:red_area"
         ],
         "facing": [
-          1.0,
-          0.0,
+          0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b1_south_7",
+        "id": "corner_7",
         "pos": [
-          -36.25,
-          -17.25,
-          0.0
+          -36.6,
+          16.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SW",
           "cover",
           "peek",
-          "block:1",
           "side:south",
-          "corner:SW",
+          "side:west",
           "team:red_area"
         ],
         "facing": [
-          -1.0,
-          0.0,
+          0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b2_east_0",
+        "id": "corner_8",
         "pos": [
-          -25.75,
-          15.25,
-          0.0
+          -27.4,
+          -16.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NE",
           "cover",
           "peek",
-          "block:2",
           "side:east",
-          "corner:NE",
+          "side:north",
           "team:red_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          -0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b2_east_1",
+        "id": "corner_9",
         "pos": [
-          -25.75,
-          8.75,
-          0.0
+          -27.4,
+          -7.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SE",
           "cover",
           "peek",
-          "block:2",
           "side:east",
-          "corner:SE",
+          "side:south",
           "team:red_area"
         ],
         "facing": [
-          0.0,
-          -1.0,
+          -0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b2_west_2",
+        "id": "corner_10",
         "pos": [
-          -38.25,
-          15.25,
-          0.0
+          -27.4,
+          7.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NE",
           "cover",
           "peek",
-          "block:2",
-          "side:west",
-          "corner:NW",
+          "side:east",
+          "side:north",
           "team:red_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          -0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b2_west_3",
+        "id": "corner_11",
         "pos": [
-          -38.25,
-          8.75,
-          0.0
+          -27.4,
+          16.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SE",
           "cover",
           "peek",
-          "block:2",
-          "side:west",
-          "corner:SW",
+          "side:east",
+          "side:south",
           "team:red_area"
         ],
         "facing": [
-          0.0,
-          -1.0,
+          -0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b2_north_4",
+        "id": "corner_12",
         "pos": [
-          -27.75,
-          17.25,
-          0.0
+          -26.6,
+          -15.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SW",
           "cover",
           "peek",
-          "block:2",
-          "side:north",
-          "corner:NE",
+          "side:south",
+          "side:west",
           "team:red_area"
         ],
         "facing": [
-          1.0,
-          0.0,
+          0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b2_north_5",
+        "id": "corner_13",
         "pos": [
-          -36.25,
-          17.25,
-          0.0
+          -26.6,
+          -8.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NW",
           "cover",
           "peek",
-          "block:2",
           "side:north",
-          "corner:NW",
+          "side:west",
           "team:red_area"
         ],
         "facing": [
-          -1.0,
-          0.0,
+          0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b2_south_6",
+        "id": "corner_14",
         "pos": [
-          -27.75,
-          6.75,
-          0.0
+          -26.6,
+          8.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SW",
           "cover",
           "peek",
-          "block:2",
           "side:south",
-          "corner:SE",
+          "side:west",
           "team:red_area"
         ],
         "facing": [
-          1.0,
-          0.0,
+          0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b2_south_7",
+        "id": "corner_15",
         "pos": [
-          -36.25,
-          6.75,
-          0.0
+          -26.6,
+          15.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NW",
           "cover",
           "peek",
-          "block:2",
-          "side:south",
-          "corner:SW",
+          "side:north",
+          "side:west",
           "team:red_area"
         ],
         "facing": [
-          -1.0,
-          0.0,
+          0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b3_east_0",
+        "id": "corner_16",
         "pos": [
-          -14.75,
-          5.25,
-          0.0
+          -24.4,
+          -5.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
-          "cover",
-          "peek",
-          "block:3",
-          "side:east",
-          "corner:NE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b3_east_1",
-        "pos": [
-          -14.75,
-          -5.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:3",
-          "side:east",
           "corner:SE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          -1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b3_west_2",
-        "pos": [
-          -25.25,
-          5.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
           "cover",
           "peek",
-          "block:3",
-          "side:west",
-          "corner:NW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b3_west_3",
-        "pos": [
-          -25.25,
-          -5.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:3",
-          "side:west",
-          "corner:SW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          -1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b3_north_4",
-        "pos": [
-          -16.75,
-          7.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:3",
-          "side:north",
-          "corner:NE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b3_north_5",
-        "pos": [
-          -23.25,
-          7.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:3",
-          "side:north",
-          "corner:NW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b3_south_6",
-        "pos": [
-          -16.75,
-          -7.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:3",
-          "side:south",
-          "corner:SE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b3_south_7",
-        "pos": [
-          -23.25,
-          -7.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:3",
-          "side:south",
-          "corner:SW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b4_east_0",
-        "pos": [
-          38.25,
-          -8.75,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:4",
           "side:east",
-          "corner:NE",
-          "team:blue_area"
+          "side:south",
+          "team:red_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          -0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b4_east_1",
+        "id": "corner_17",
         "pos": [
-          38.25,
-          -15.25,
-          0.0
+          -24.4,
+          5.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NE",
           "cover",
           "peek",
-          "block:4",
           "side:east",
-          "corner:SE",
-          "team:blue_area"
-        ],
-        "facing": [
-          0.0,
-          -1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b4_west_2",
-        "pos": [
-          25.75,
-          -8.75,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:4",
-          "side:west",
-          "corner:NW",
-          "team:blue_area"
-        ],
-        "facing": [
-          0.0,
-          1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b4_west_3",
-        "pos": [
-          25.75,
-          -15.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:4",
-          "side:west",
-          "corner:SW",
-          "team:blue_area"
-        ],
-        "facing": [
-          0.0,
-          -1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b4_north_4",
-        "pos": [
-          36.25,
-          -6.75,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:4",
           "side:north",
+          "team:red_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_18",
+        "pos": [
+          -23.6,
+          -6.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_19",
+        "pos": [
+          -23.6,
+          6.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_20",
+        "pos": [
+          -16.4,
+          -6.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
           "corner:NE",
-          "team:blue_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b4_north_5",
-        "pos": [
-          27.75,
-          -6.75,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
           "cover",
           "peek",
-          "block:4",
-          "side:north",
-          "corner:NW",
-          "team:blue_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b4_south_6",
-        "pos": [
-          36.25,
-          -17.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:4",
-          "side:south",
-          "corner:SE",
-          "team:blue_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b4_south_7",
-        "pos": [
-          27.75,
-          -17.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:4",
-          "side:south",
-          "corner:SW",
-          "team:blue_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b5_east_0",
-        "pos": [
-          38.25,
-          15.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:5",
           "side:east",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_21",
+        "pos": [
+          -16.4,
+          6.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_22",
+        "pos": [
+          -15.6,
+          -5.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_23",
+        "pos": [
+          -15.6,
+          5.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_24",
+        "pos": [
+          -8.4,
+          -15.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
           "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_25",
+        "pos": [
+          -8.4,
+          15.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_26",
+        "pos": [
+          -7.6,
+          -14.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_27",
+        "pos": [
+          -7.4,
+          -2.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_28",
+        "pos": [
+          -7.4,
+          2.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_29",
+        "pos": [
+          -7.6,
+          14.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_30",
+        "pos": [
+          -6.6,
+          -3.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_31",
+        "pos": [
+          -6.6,
+          3.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_32",
+        "pos": [
+          -3.4,
+          -3.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_33",
+        "pos": [
+          -3.4,
+          3.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_34",
+        "pos": [
+          -2.6,
+          -2.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_35",
+        "pos": [
+          -2.6,
+          2.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_36",
+        "pos": [
+          2.6,
+          -2.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_37",
+        "pos": [
+          2.6,
+          2.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_38",
+        "pos": [
+          3.4,
+          -3.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_39",
+        "pos": [
+          3.4,
+          3.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_40",
+        "pos": [
+          6.6,
+          -3.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_41",
+        "pos": [
+          6.6,
+          3.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_42",
+        "pos": [
+          7.6,
+          -14.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_43",
+        "pos": [
+          7.4,
+          -2.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_44",
+        "pos": [
+          7.4,
+          2.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_45",
+        "pos": [
+          7.6,
+          14.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_46",
+        "pos": [
+          8.4,
+          -15.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_47",
+        "pos": [
+          8.4,
+          15.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_48",
+        "pos": [
+          15.6,
+          -5.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_49",
+        "pos": [
+          15.6,
+          5.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_50",
+        "pos": [
+          16.4,
+          -6.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_51",
+        "pos": [
+          16.4,
+          6.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_52",
+        "pos": [
+          23.6,
+          -6.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_53",
+        "pos": [
+          23.6,
+          6.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_54",
+        "pos": [
+          24.4,
+          -5.6,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
           "team:blue_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b5_east_1",
+        "id": "corner_55",
         "pos": [
-          38.25,
-          8.75,
-          0.0
+          24.4,
+          5.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NW",
           "cover",
           "peek",
-          "block:5",
-          "side:east",
-          "corner:SE",
+          "side:north",
+          "side:west",
           "team:blue_area"
         ],
         "facing": [
-          0.0,
-          -1.0,
+          0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b5_west_2",
+        "id": "corner_56",
         "pos": [
-          25.75,
-          15.25,
-          0.0
+          26.6,
+          -15.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SE",
           "cover",
           "peek",
-          "block:5",
-          "side:west",
-          "corner:NW",
+          "side:east",
+          "side:south",
           "team:blue_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          -0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b5_west_3",
+        "id": "corner_57",
         "pos": [
-          25.75,
-          8.75,
-          0.0
+          26.6,
+          -8.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NE",
           "cover",
           "peek",
-          "block:5",
-          "side:west",
-          "corner:SW",
+          "side:east",
+          "side:north",
           "team:blue_area"
         ],
         "facing": [
-          0.0,
-          -1.0,
+          -0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b5_north_4",
+        "id": "corner_58",
         "pos": [
-          36.25,
-          17.25,
-          0.0
+          26.6,
+          8.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SE",
           "cover",
           "peek",
-          "block:5",
-          "side:north",
-          "corner:NE",
+          "side:east",
+          "side:south",
           "team:blue_area"
         ],
         "facing": [
-          1.0,
-          0.0,
+          -0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b5_north_5",
+        "id": "corner_59",
         "pos": [
-          27.75,
-          17.25,
-          0.0
+          26.6,
+          15.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NE",
           "cover",
           "peek",
-          "block:5",
+          "side:east",
           "side:north",
-          "corner:NW",
           "team:blue_area"
         ],
         "facing": [
-          -1.0,
-          0.0,
+          -0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b5_south_6",
+        "id": "corner_60",
         "pos": [
-          36.25,
-          6.75,
-          0.0
+          27.4,
+          -16.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NW",
           "cover",
           "peek",
-          "block:5",
-          "side:south",
-          "corner:SE",
+          "side:north",
+          "side:west",
           "team:blue_area"
         ],
         "facing": [
-          1.0,
-          0.0,
+          0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b5_south_7",
+        "id": "corner_61",
         "pos": [
-          27.75,
-          6.75,
-          0.0
+          27.4,
+          -7.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SW",
           "cover",
           "peek",
-          "block:5",
           "side:south",
-          "corner:SW",
+          "side:west",
           "team:blue_area"
         ],
         "facing": [
-          -1.0,
-          0.0,
+          0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b6_east_0",
+        "id": "corner_62",
         "pos": [
-          25.25,
-          5.25,
-          0.0
+          27.4,
+          7.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
-          "cover",
-          "peek",
-          "block:6",
-          "side:east",
-          "corner:NE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b6_east_1",
-        "pos": [
-          25.25,
-          -5.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:6",
-          "side:east",
-          "corner:SE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          -1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b6_west_2",
-        "pos": [
-          14.75,
-          5.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:6",
-          "side:west",
           "corner:NW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b6_west_3",
-        "pos": [
-          14.75,
-          -5.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
           "cover",
           "peek",
-          "block:6",
+          "side:north",
           "side:west",
-          "corner:SW",
-          "team:neutral_area"
+          "team:blue_area"
         ],
         "facing": [
-          0.0,
-          -1.0,
+          0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b6_north_4",
+        "id": "corner_63",
         "pos": [
-          23.25,
-          7.25,
-          0.0
+          27.4,
+          16.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SW",
           "cover",
           "peek",
-          "block:6",
-          "side:north",
+          "side:south",
+          "side:west",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_64",
+        "pos": [
+          36.6,
+          -16.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
           "corner:NE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b6_north_5",
-        "pos": [
-          16.75,
-          7.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
           "cover",
           "peek",
-          "block:6",
-          "side:north",
-          "corner:NW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b6_south_6",
-        "pos": [
-          23.25,
-          -7.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:6",
-          "side:south",
-          "corner:SE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b6_south_7",
-        "pos": [
-          16.75,
-          -7.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:6",
-          "side:south",
-          "corner:SW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b7_east_0",
-        "pos": [
-          7.25,
-          2.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:7",
           "side:east",
-          "corner:NE",
-          "team:neutral_area"
+          "side:north",
+          "team:blue_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          -0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b7_east_1",
+        "id": "corner_65",
         "pos": [
-          7.25,
-          -2.25,
-          0.0
+          36.6,
+          -7.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SE",
           "cover",
           "peek",
-          "block:7",
           "side:east",
-          "corner:SE",
-          "team:neutral_area"
+          "side:south",
+          "team:blue_area"
         ],
         "facing": [
-          0.0,
-          -1.0,
+          -0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b7_west_2",
+        "id": "corner_66",
         "pos": [
-          -7.25,
-          2.25,
-          0.0
+          36.6,
+          7.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
-          "cover",
-          "peek",
-          "block:7",
-          "side:west",
-          "corner:NW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b7_west_3",
-        "pos": [
-          -7.25,
-          -2.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:7",
-          "side:west",
-          "corner:SW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          -1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b7_north_4",
-        "pos": [
-          5.25,
-          4.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:7",
-          "side:north",
           "corner:NE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b7_north_5",
-        "pos": [
-          -5.25,
-          4.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
           "cover",
           "peek",
-          "block:7",
-          "side:north",
-          "corner:NW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b7_south_6",
-        "pos": [
-          5.25,
-          -4.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:7",
-          "side:south",
-          "corner:SE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b7_south_7",
-        "pos": [
-          -5.25,
-          -4.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:7",
-          "side:south",
-          "corner:SW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b8_east_0",
-        "pos": [
-          9.25,
-          20.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:8",
           "side:east",
-          "corner:NE",
-          "team:neutral_area"
+          "side:north",
+          "team:blue_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          -0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b8_east_1",
+        "id": "corner_67",
         "pos": [
-          9.25,
-          15.75,
-          0.0
+          36.6,
+          16.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:SE",
           "cover",
           "peek",
-          "block:8",
           "side:east",
-          "corner:SE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          -1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b8_west_2",
-        "pos": [
-          -9.25,
-          20.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:8",
-          "side:west",
-          "corner:NW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b8_west_3",
-        "pos": [
-          -9.25,
-          15.75,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:8",
-          "side:west",
-          "corner:SW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          -1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b8_north_4",
-        "pos": [
-          7.25,
-          22.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:8",
-          "side:north",
-          "corner:NE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b8_north_5",
-        "pos": [
-          -7.25,
-          22.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:8",
-          "side:north",
-          "corner:NW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b8_south_6",
-        "pos": [
-          7.25,
-          13.75,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:8",
           "side:south",
-          "corner:SE",
-          "team:neutral_area"
+          "team:blue_area"
         ],
         "facing": [
-          1.0,
-          0.0,
+          -0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b8_south_7",
+        "id": "corner_68",
         "pos": [
-          -7.25,
-          13.75,
-          0.0
+          37.4,
+          -15.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
-          "cover",
-          "peek",
-          "block:8",
-          "side:south",
           "corner:SW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b9_east_0",
-        "pos": [
-          9.25,
-          -15.75,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
           "cover",
           "peek",
-          "block:9",
-          "side:east",
-          "corner:NE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b9_east_1",
-        "pos": [
-          9.25,
-          -20.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:9",
-          "side:east",
-          "corner:SE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          0.0,
-          -1.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b9_west_2",
-        "pos": [
-          -9.25,
-          -15.75,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:9",
+          "side:south",
           "side:west",
-          "corner:NW",
-          "team:neutral_area"
+          "team:blue_area"
         ],
         "facing": [
-          0.0,
-          1.0,
+          0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b9_west_3",
+        "id": "corner_69",
         "pos": [
-          -9.25,
-          -20.25,
-          0.0
+          37.4,
+          -8.4,
+          1.1
         ],
         "type": "cover",
         "tags": [
+          "corner:NW",
           "cover",
           "peek",
-          "block:9",
+          "side:north",
           "side:west",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.707,
+          -0.707,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_70",
+        "pos": [
+          37.4,
+          8.4,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
           "corner:SW",
-          "team:neutral_area"
+          "cover",
+          "peek",
+          "side:south",
+          "side:west",
+          "team:blue_area"
         ],
         "facing": [
-          0.0,
-          -1.0,
+          0.707,
+          0.707,
           0.0
         ],
         "radius": 0.6
       },
       {
-        "id": "b9_north_4",
+        "id": "corner_71",
         "pos": [
-          7.25,
-          -13.75,
-          0.0
+          37.4,
+          15.6,
+          1.1
         ],
         "type": "cover",
         "tags": [
-          "cover",
-          "peek",
-          "block:9",
-          "side:north",
-          "corner:NE",
-          "team:neutral_area"
-        ],
-        "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b9_north_5",
-        "pos": [
-          -7.25,
-          -13.75,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:9",
-          "side:north",
           "corner:NW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b9_south_6",
-        "pos": [
-          7.25,
-          -22.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
           "cover",
           "peek",
-          "block:9",
-          "side:south",
-          "corner:SE",
-          "team:neutral_area"
+          "side:north",
+          "side:west",
+          "team:blue_area"
         ],
         "facing": [
-          1.0,
-          0.0,
-          0.0
-        ],
-        "radius": 0.6
-      },
-      {
-        "id": "b9_south_7",
-        "pos": [
-          -7.25,
-          -22.25,
-          0.0
-        ],
-        "type": "cover",
-        "tags": [
-          "cover",
-          "peek",
-          "block:9",
-          "side:south",
-          "corner:SW",
-          "team:neutral_area"
-        ],
-        "facing": [
-          -1.0,
-          0.0,
+          0.707,
+          -0.707,
           0.0
         ],
         "radius": 0.6
@@ -1679,1307 +1827,1450 @@
     ],
     "links": [
       {
-        "from": "b1_east_0",
-        "to": "b1_east_1",
-        "weight": 6.5
+        "from": "corner_0",
+        "to": "corner_1",
+        "weight": 7.2
       },
       {
-        "from": "b1_west_2",
-        "to": "b1_west_3",
-        "weight": 6.5
+        "from": "corner_0",
+        "to": "corner_4",
+        "weight": 1.131
       },
       {
-        "from": "b1_north_4",
-        "to": "b1_north_5",
-        "weight": 8.5
+        "from": "corner_1",
+        "to": "corner_2",
+        "weight": 16.8
       },
       {
-        "from": "b1_south_6",
-        "to": "b1_south_7",
-        "weight": 8.5
+        "from": "corner_1",
+        "to": "corner_5",
+        "weight": 1.131
       },
       {
-        "from": "b2_east_0",
-        "to": "b2_east_1",
-        "weight": 6.5
+        "from": "corner_1",
+        "to": "corner_6",
+        "weight": 16.02
       },
       {
-        "from": "b2_west_2",
-        "to": "b2_west_3",
-        "weight": 6.5
+        "from": "corner_2",
+        "to": "corner_3",
+        "weight": 7.2
       },
       {
-        "from": "b2_north_4",
-        "to": "b2_north_5",
-        "weight": 8.5
+        "from": "corner_2",
+        "to": "corner_5",
+        "weight": 16.02
       },
       {
-        "from": "b2_south_6",
-        "to": "b2_south_7",
-        "weight": 8.5
+        "from": "corner_2",
+        "to": "corner_6",
+        "weight": 1.131
       },
       {
-        "from": "b3_east_0",
-        "to": "b3_east_1",
-        "weight": 10.5
+        "from": "corner_3",
+        "to": "corner_7",
+        "weight": 1.131
       },
       {
-        "from": "b3_west_2",
-        "to": "b3_west_3",
-        "weight": 10.5
+        "from": "corner_4",
+        "to": "corner_8",
+        "weight": 9.2
       },
       {
-        "from": "b3_north_4",
-        "to": "b3_north_5",
-        "weight": 6.5
+        "from": "corner_5",
+        "to": "corner_6",
+        "weight": 15.2
       },
       {
-        "from": "b3_south_6",
-        "to": "b3_south_7",
-        "weight": 6.5
+        "from": "corner_5",
+        "to": "corner_9",
+        "weight": 9.2
       },
       {
-        "from": "b4_east_0",
-        "to": "b4_east_1",
-        "weight": 6.5
+        "from": "corner_5",
+        "to": "corner_10",
+        "weight": 17.767
       },
       {
-        "from": "b4_west_2",
-        "to": "b4_west_3",
-        "weight": 6.5
+        "from": "corner_5",
+        "to": "corner_16",
+        "weight": 12.363
       },
       {
-        "from": "b4_north_4",
-        "to": "b4_north_5",
-        "weight": 8.5
+        "from": "corner_5",
+        "to": "corner_17",
+        "weight": 17.974
       },
       {
-        "from": "b4_south_6",
-        "to": "b4_south_7",
-        "weight": 8.5
+        "from": "corner_5",
+        "to": "corner_18",
+        "weight": 13.055
       },
       {
-        "from": "b5_east_0",
-        "to": "b5_east_1",
-        "weight": 6.5
+        "from": "corner_6",
+        "to": "corner_9",
+        "weight": 17.767
       },
       {
-        "from": "b5_west_2",
-        "to": "b5_west_3",
-        "weight": 6.5
+        "from": "corner_6",
+        "to": "corner_10",
+        "weight": 9.2
       },
       {
-        "from": "b5_north_4",
-        "to": "b5_north_5",
-        "weight": 8.5
+        "from": "corner_6",
+        "to": "corner_16",
+        "weight": 17.974
       },
       {
-        "from": "b5_south_6",
-        "to": "b5_south_7",
-        "weight": 8.5
+        "from": "corner_6",
+        "to": "corner_17",
+        "weight": 12.363
       },
       {
-        "from": "b6_east_0",
-        "to": "b6_east_1",
-        "weight": 10.5
+        "from": "corner_6",
+        "to": "corner_19",
+        "weight": 13.055
       },
       {
-        "from": "b6_west_2",
-        "to": "b6_west_3",
-        "weight": 10.5
+        "from": "corner_7",
+        "to": "corner_11",
+        "weight": 9.2
       },
       {
-        "from": "b6_north_4",
-        "to": "b6_north_5",
-        "weight": 6.5
-      },
-      {
-        "from": "b6_south_6",
-        "to": "b6_south_7",
-        "weight": 6.5
-      },
-      {
-        "from": "b7_east_0",
-        "to": "b7_east_1",
-        "weight": 4.5
-      },
-      {
-        "from": "b7_west_2",
-        "to": "b7_west_3",
-        "weight": 4.5
-      },
-      {
-        "from": "b7_north_4",
-        "to": "b7_north_5",
-        "weight": 10.5
-      },
-      {
-        "from": "b7_south_6",
-        "to": "b7_south_7",
-        "weight": 10.5
-      },
-      {
-        "from": "b8_east_0",
-        "to": "b8_east_1",
-        "weight": 4.5
-      },
-      {
-        "from": "b8_west_2",
-        "to": "b8_west_3",
-        "weight": 4.5
-      },
-      {
-        "from": "b8_north_4",
-        "to": "b8_north_5",
-        "weight": 14.5
-      },
-      {
-        "from": "b8_south_6",
-        "to": "b8_south_7",
-        "weight": 14.5
-      },
-      {
-        "from": "b9_east_0",
-        "to": "b9_east_1",
-        "weight": 4.5
-      },
-      {
-        "from": "b9_west_2",
-        "to": "b9_west_3",
-        "weight": 4.5
-      },
-      {
-        "from": "b9_north_4",
-        "to": "b9_north_5",
-        "weight": 14.5
-      },
-      {
-        "from": "b9_south_6",
-        "to": "b9_south_7",
-        "weight": 14.5
-      },
-      {
-        "from": "b1_east_0",
-        "to": "b1_north_4",
-        "weight": 2.828
-      },
-      {
-        "from": "b1_east_0",
-        "to": "b2_east_1",
-        "weight": 17.5
-      },
-      {
-        "from": "b1_east_0",
-        "to": "b2_south_6",
-        "weight": 15.628
-      },
-      {
-        "from": "b1_east_0",
-        "to": "b3_west_2",
-        "weight": 14.009
-      },
-      {
-        "from": "b1_east_0",
-        "to": "b3_west_3",
-        "weight": 3.536
-      },
-      {
-        "from": "b1_east_0",
-        "to": "b3_south_6",
-        "weight": 9.124
-      },
-      {
-        "from": "b1_east_0",
-        "to": "b3_south_7",
-        "weight": 2.915
-      },
-      {
-        "from": "b1_east_0",
-        "to": "b9_west_2",
-        "weight": 17.923
-      },
-      {
-        "from": "b1_east_1",
-        "to": "b1_south_6",
-        "weight": 2.828
-      },
-      {
-        "from": "b1_east_1",
-        "to": "b3_east_1",
+        "from": "corner_8",
+        "to": "corner_20",
         "weight": 14.866
       },
       {
-        "from": "b1_east_1",
-        "to": "b3_west_3",
-        "weight": 10.012
+        "from": "corner_8",
+        "to": "corner_22",
+        "weight": 15.996
       },
       {
-        "from": "b1_east_1",
-        "to": "b3_south_6",
+        "from": "corner_9",
+        "to": "corner_10",
+        "weight": 15.2
+      },
+      {
+        "from": "corner_9",
+        "to": "corner_14",
+        "weight": 16.02
+      },
+      {
+        "from": "corner_9",
+        "to": "corner_16",
+        "weight": 3.606
+      },
+      {
+        "from": "corner_9",
+        "to": "corner_17",
+        "weight": 13.537
+      },
+      {
+        "from": "corner_9",
+        "to": "corner_18",
+        "weight": 3.985
+      },
+      {
+        "from": "corner_9",
+        "to": "corner_20",
+        "weight": 11.065
+      },
+      {
+        "from": "corner_10",
+        "to": "corner_13",
+        "weight": 16.02
+      },
+      {
+        "from": "corner_10",
+        "to": "corner_14",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_10",
+        "to": "corner_16",
+        "weight": 13.537
+      },
+      {
+        "from": "corner_10",
+        "to": "corner_17",
+        "weight": 3.606
+      },
+      {
+        "from": "corner_10",
+        "to": "corner_19",
+        "weight": 3.985
+      },
+      {
+        "from": "corner_10",
+        "to": "corner_21",
+        "weight": 11.065
+      },
+      {
+        "from": "corner_11",
+        "to": "corner_21",
+        "weight": 14.866
+      },
+      {
+        "from": "corner_11",
+        "to": "corner_23",
+        "weight": 15.996
+      },
+      {
+        "from": "corner_12",
+        "to": "corner_13",
+        "weight": 7.2
+      },
+      {
+        "from": "corner_12",
+        "to": "corner_16",
+        "weight": 10.239
+      },
+      {
+        "from": "corner_12",
+        "to": "corner_18",
+        "weight": 9.677
+      },
+      {
+        "from": "corner_12",
+        "to": "corner_20",
+        "weight": 13.736
+      },
+      {
+        "from": "corner_12",
+        "to": "corner_22",
+        "weight": 14.866
+      },
+      {
+        "from": "corner_13",
+        "to": "corner_14",
+        "weight": 16.8
+      },
+      {
+        "from": "corner_13",
+        "to": "corner_16",
+        "weight": 3.561
+      },
+      {
+        "from": "corner_13",
+        "to": "corner_17",
+        "weight": 14.172
+      },
+      {
+        "from": "corner_13",
+        "to": "corner_18",
+        "weight": 3.606
+      },
+      {
+        "from": "corner_13",
+        "to": "corner_20",
+        "weight": 10.394
+      },
+      {
+        "from": "corner_14",
+        "to": "corner_15",
+        "weight": 7.2
+      },
+      {
+        "from": "corner_14",
+        "to": "corner_16",
+        "weight": 14.172
+      },
+      {
+        "from": "corner_14",
+        "to": "corner_17",
+        "weight": 3.561
+      },
+      {
+        "from": "corner_14",
+        "to": "corner_19",
+        "weight": 3.606
+      },
+      {
+        "from": "corner_14",
+        "to": "corner_21",
+        "weight": 10.394
+      },
+      {
+        "from": "corner_15",
+        "to": "corner_17",
+        "weight": 10.239
+      },
+      {
+        "from": "corner_15",
+        "to": "corner_19",
+        "weight": 9.677
+      },
+      {
+        "from": "corner_15",
+        "to": "corner_21",
+        "weight": 13.736
+      },
+      {
+        "from": "corner_15",
+        "to": "corner_23",
+        "weight": 14.866
+      },
+      {
+        "from": "corner_16",
+        "to": "corner_17",
+        "weight": 11.2
+      },
+      {
+        "from": "corner_16",
+        "to": "corner_18",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_18",
+        "to": "corner_20",
+        "weight": 7.2
+      },
+      {
+        "from": "corner_18",
+        "to": "corner_24",
+        "weight": 17.665
+      },
+      {
+        "from": "corner_18",
+        "to": "corner_26",
+        "weight": 17.979
+      },
+      {
+        "from": "corner_19",
+        "to": "corner_21",
+        "weight": 7.2
+      },
+      {
+        "from": "corner_19",
+        "to": "corner_25",
+        "weight": 17.665
+      },
+      {
+        "from": "corner_19",
+        "to": "corner_29",
+        "weight": 17.979
+      },
+      {
+        "from": "corner_20",
+        "to": "corner_22",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_20",
+        "to": "corner_24",
         "weight": 12.042
       },
       {
-        "from": "b1_east_1",
-        "to": "b3_south_7",
-        "weight": 8.382
+        "from": "corner_20",
+        "to": "corner_26",
+        "weight": 12.028
       },
       {
-        "from": "b1_east_1",
-        "to": "b9_west_2",
-        "weight": 16.508
+        "from": "corner_20",
+        "to": "corner_27",
+        "weight": 9.769
       },
       {
-        "from": "b1_east_1",
-        "to": "b9_west_3",
-        "weight": 17.241
+        "from": "corner_20",
+        "to": "corner_28",
+        "weight": 12.728
       },
       {
-        "from": "b1_west_2",
-        "to": "b1_north_5",
-        "weight": 2.828
+        "from": "corner_20",
+        "to": "corner_30",
+        "weight": 10.249
       },
       {
-        "from": "b1_west_2",
-        "to": "b2_west_3",
-        "weight": 17.5
+        "from": "corner_20",
+        "to": "corner_31",
+        "weight": 13.859
       },
       {
-        "from": "b1_west_2",
-        "to": "b2_south_7",
-        "weight": 15.628
+        "from": "corner_20",
+        "to": "corner_32",
+        "weight": 13.342
       },
       {
-        "from": "b1_west_3",
-        "to": "b1_south_7",
-        "weight": 2.828
+        "from": "corner_21",
+        "to": "corner_23",
+        "weight": 1.131
       },
       {
-        "from": "b1_north_4",
-        "to": "b2_east_1",
-        "weight": 15.628
-      },
-      {
-        "from": "b1_north_4",
-        "to": "b2_south_6",
-        "weight": 13.5
-      },
-      {
-        "from": "b1_north_4",
-        "to": "b2_south_7",
-        "weight": 15.953
-      },
-      {
-        "from": "b1_north_4",
-        "to": "b3_west_2",
-        "weight": 12.258
-      },
-      {
-        "from": "b1_north_4",
-        "to": "b3_west_3",
-        "weight": 2.915
-      },
-      {
-        "from": "b1_north_4",
-        "to": "b3_south_6",
-        "weight": 11.011
-      },
-      {
-        "from": "b1_north_4",
-        "to": "b3_south_7",
-        "weight": 4.528
-      },
-      {
-        "from": "b1_north_5",
-        "to": "b2_west_3",
-        "weight": 15.628
-      },
-      {
-        "from": "b1_north_5",
-        "to": "b2_south_6",
-        "weight": 15.953
-      },
-      {
-        "from": "b1_north_5",
-        "to": "b2_south_7",
-        "weight": 13.5
-      },
-      {
-        "from": "b1_north_5",
-        "to": "b3_west_2",
-        "weight": 16.279
-      },
-      {
-        "from": "b1_north_5",
-        "to": "b3_west_3",
-        "weight": 11.102
-      },
-      {
-        "from": "b1_north_5",
-        "to": "b3_south_7",
-        "weight": 13.01
-      },
-      {
-        "from": "b1_south_6",
-        "to": "b3_east_1",
-        "weight": 17.692
-      },
-      {
-        "from": "b1_south_6",
-        "to": "b3_south_6",
-        "weight": 14.866
-      },
-      {
-        "from": "b2_east_0",
-        "to": "b2_north_4",
-        "weight": 2.828
-      },
-      {
-        "from": "b2_east_0",
-        "to": "b3_east_0",
-        "weight": 14.866
-      },
-      {
-        "from": "b2_east_0",
-        "to": "b3_west_2",
-        "weight": 10.012
-      },
-      {
-        "from": "b2_east_0",
-        "to": "b3_north_4",
+        "from": "corner_21",
+        "to": "corner_25",
         "weight": 12.042
       },
       {
-        "from": "b2_east_0",
-        "to": "b3_north_5",
-        "weight": 8.382
+        "from": "corner_21",
+        "to": "corner_27",
+        "weight": 12.728
       },
       {
-        "from": "b2_east_0",
-        "to": "b8_west_2",
-        "weight": 17.241
+        "from": "corner_21",
+        "to": "corner_28",
+        "weight": 9.769
       },
       {
-        "from": "b2_east_0",
-        "to": "b8_west_3",
-        "weight": 16.508
+        "from": "corner_21",
+        "to": "corner_29",
+        "weight": 12.028
       },
       {
-        "from": "b2_east_1",
-        "to": "b2_south_6",
-        "weight": 2.828
+        "from": "corner_21",
+        "to": "corner_30",
+        "weight": 13.859
       },
       {
-        "from": "b2_east_1",
-        "to": "b3_west_2",
-        "weight": 3.536
+        "from": "corner_21",
+        "to": "corner_31",
+        "weight": 10.249
       },
       {
-        "from": "b2_east_1",
-        "to": "b3_west_3",
-        "weight": 14.009
+        "from": "corner_21",
+        "to": "corner_33",
+        "weight": 13.342
       },
       {
-        "from": "b2_east_1",
-        "to": "b3_north_4",
-        "weight": 9.124
+        "from": "corner_22",
+        "to": "corner_23",
+        "weight": 11.2
       },
       {
-        "from": "b2_east_1",
-        "to": "b3_north_5",
-        "weight": 2.915
+        "from": "corner_22",
+        "to": "corner_24",
+        "weight": 12.161
       },
       {
-        "from": "b2_east_1",
-        "to": "b8_west_3",
-        "weight": 17.923
-      },
-      {
-        "from": "b2_west_2",
-        "to": "b2_north_5",
-        "weight": 2.828
-      },
-      {
-        "from": "b2_west_3",
-        "to": "b2_south_7",
-        "weight": 2.828
-      },
-      {
-        "from": "b2_north_4",
-        "to": "b3_east_0",
-        "weight": 17.692
-      },
-      {
-        "from": "b2_north_4",
-        "to": "b3_north_4",
-        "weight": 14.866
-      },
-      {
-        "from": "b2_south_6",
-        "to": "b3_west_2",
-        "weight": 2.915
-      },
-      {
-        "from": "b2_south_6",
-        "to": "b3_west_3",
-        "weight": 12.258
-      },
-      {
-        "from": "b2_south_6",
-        "to": "b3_north_4",
-        "weight": 11.011
-      },
-      {
-        "from": "b2_south_6",
-        "to": "b3_north_5",
-        "weight": 4.528
-      },
-      {
-        "from": "b2_south_7",
-        "to": "b3_west_2",
-        "weight": 11.102
-      },
-      {
-        "from": "b2_south_7",
-        "to": "b3_west_3",
-        "weight": 16.279
-      },
-      {
-        "from": "b2_south_7",
-        "to": "b3_north_5",
-        "weight": 13.01
-      },
-      {
-        "from": "b3_east_0",
-        "to": "b3_north_4",
-        "weight": 2.828
-      },
-      {
-        "from": "b3_east_0",
-        "to": "b7_west_2",
-        "weight": 8.078
-      },
-      {
-        "from": "b3_east_0",
-        "to": "b7_west_3",
-        "weight": 10.607
-      },
-      {
-        "from": "b3_east_0",
-        "to": "b7_north_5",
-        "weight": 9.552
-      },
-      {
-        "from": "b3_east_0",
-        "to": "b7_south_7",
-        "weight": 13.435
-      },
-      {
-        "from": "b3_east_0",
-        "to": "b8_west_2",
-        "weight": 15.977
-      },
-      {
-        "from": "b3_east_0",
-        "to": "b8_west_3",
-        "weight": 11.853
-      },
-      {
-        "from": "b3_east_0",
-        "to": "b8_south_7",
-        "weight": 11.336
-      },
-      {
-        "from": "b3_east_1",
-        "to": "b3_south_6",
-        "weight": 2.828
-      },
-      {
-        "from": "b3_east_1",
-        "to": "b7_west_2",
-        "weight": 10.607
-      },
-      {
-        "from": "b3_east_1",
-        "to": "b7_west_3",
-        "weight": 8.078
-      },
-      {
-        "from": "b3_east_1",
-        "to": "b7_north_5",
-        "weight": 13.435
-      },
-      {
-        "from": "b3_east_1",
-        "to": "b7_south_7",
-        "weight": 9.552
-      },
-      {
-        "from": "b3_east_1",
-        "to": "b9_west_2",
-        "weight": 11.853
-      },
-      {
-        "from": "b3_east_1",
-        "to": "b9_west_3",
-        "weight": 15.977
-      },
-      {
-        "from": "b3_east_1",
-        "to": "b9_north_5",
-        "weight": 11.336
-      },
-      {
-        "from": "b3_west_2",
-        "to": "b3_north_5",
-        "weight": 2.828
-      },
-      {
-        "from": "b3_west_3",
-        "to": "b3_south_7",
-        "weight": 2.828
-      },
-      {
-        "from": "b3_north_4",
-        "to": "b7_west_2",
-        "weight": 10.735
-      },
-      {
-        "from": "b3_north_4",
-        "to": "b7_west_3",
-        "weight": 13.435
-      },
-      {
-        "from": "b3_north_4",
-        "to": "b7_north_5",
-        "weight": 11.885
-      },
-      {
-        "from": "b3_north_4",
-        "to": "b7_south_7",
-        "weight": 16.263
-      },
-      {
-        "from": "b3_north_4",
-        "to": "b8_west_2",
-        "weight": 15.008
-      },
-      {
-        "from": "b3_north_4",
-        "to": "b8_west_3",
-        "weight": 11.336
-      },
-      {
-        "from": "b3_north_4",
-        "to": "b8_south_7",
-        "weight": 11.511
-      },
-      {
-        "from": "b3_north_5",
-        "to": "b8_west_3",
-        "weight": 16.378
-      },
-      {
-        "from": "b3_north_5",
-        "to": "b8_south_7",
-        "weight": 17.27
-      },
-      {
-        "from": "b3_south_6",
-        "to": "b7_west_2",
-        "weight": 13.435
-      },
-      {
-        "from": "b3_south_6",
-        "to": "b7_west_3",
-        "weight": 10.735
-      },
-      {
-        "from": "b3_south_6",
-        "to": "b7_north_5",
-        "weight": 16.263
-      },
-      {
-        "from": "b3_south_6",
-        "to": "b7_south_7",
-        "weight": 11.885
-      },
-      {
-        "from": "b3_south_6",
-        "to": "b9_west_2",
-        "weight": 11.336
-      },
-      {
-        "from": "b3_south_6",
-        "to": "b9_west_3",
-        "weight": 15.008
-      },
-      {
-        "from": "b3_south_6",
-        "to": "b9_north_5",
-        "weight": 11.511
-      },
-      {
-        "from": "b3_south_7",
-        "to": "b9_west_2",
-        "weight": 16.378
-      },
-      {
-        "from": "b3_south_7",
-        "to": "b9_north_5",
-        "weight": 17.27
-      },
-      {
-        "from": "b4_east_0",
-        "to": "b4_north_4",
-        "weight": 2.828
-      },
-      {
-        "from": "b4_east_0",
-        "to": "b5_east_1",
-        "weight": 17.5
-      },
-      {
-        "from": "b4_east_0",
-        "to": "b5_south_6",
-        "weight": 15.628
-      },
-      {
-        "from": "b4_east_1",
-        "to": "b4_south_6",
-        "weight": 2.828
-      },
-      {
-        "from": "b4_west_2",
-        "to": "b4_north_5",
-        "weight": 2.828
-      },
-      {
-        "from": "b4_west_2",
-        "to": "b5_west_3",
-        "weight": 17.5
-      },
-      {
-        "from": "b4_west_2",
-        "to": "b5_south_7",
-        "weight": 15.628
-      },
-      {
-        "from": "b4_west_2",
-        "to": "b6_east_0",
-        "weight": 14.009
-      },
-      {
-        "from": "b4_west_2",
-        "to": "b6_east_1",
-        "weight": 3.536
-      },
-      {
-        "from": "b4_west_2",
-        "to": "b6_south_6",
-        "weight": 2.915
-      },
-      {
-        "from": "b4_west_2",
-        "to": "b6_south_7",
-        "weight": 9.124
-      },
-      {
-        "from": "b4_west_2",
-        "to": "b9_east_0",
-        "weight": 17.923
-      },
-      {
-        "from": "b4_west_3",
-        "to": "b4_south_7",
-        "weight": 2.828
-      },
-      {
-        "from": "b4_west_3",
-        "to": "b6_east_1",
-        "weight": 10.012
-      },
-      {
-        "from": "b4_west_3",
-        "to": "b6_west_3",
-        "weight": 14.866
-      },
-      {
-        "from": "b4_west_3",
-        "to": "b6_south_6",
-        "weight": 8.382
-      },
-      {
-        "from": "b4_west_3",
-        "to": "b6_south_7",
+        "from": "corner_22",
+        "to": "corner_26",
         "weight": 12.042
       },
       {
-        "from": "b4_west_3",
-        "to": "b9_east_0",
-        "weight": 16.508
+        "from": "corner_22",
+        "to": "corner_27",
+        "weight": 8.732
       },
       {
-        "from": "b4_west_3",
-        "to": "b9_east_1",
-        "weight": 17.241
+        "from": "corner_22",
+        "to": "corner_28",
+        "weight": 11.597
       },
       {
-        "from": "b4_north_4",
-        "to": "b5_east_1",
-        "weight": 15.628
+        "from": "corner_22",
+        "to": "corner_30",
+        "weight": 9.265
       },
       {
-        "from": "b4_north_4",
-        "to": "b5_south_6",
-        "weight": 13.5
+        "from": "corner_22",
+        "to": "corner_31",
+        "weight": 12.728
       },
       {
-        "from": "b4_north_4",
-        "to": "b5_south_7",
-        "weight": 15.953
+        "from": "corner_22",
+        "to": "corner_32",
+        "weight": 12.397
       },
       {
-        "from": "b4_north_4",
-        "to": "b6_east_0",
-        "weight": 16.279
+        "from": "corner_23",
+        "to": "corner_25",
+        "weight": 12.161
       },
       {
-        "from": "b4_north_4",
-        "to": "b6_east_1",
-        "weight": 11.102
+        "from": "corner_23",
+        "to": "corner_27",
+        "weight": 11.597
       },
       {
-        "from": "b4_north_4",
-        "to": "b6_south_6",
-        "weight": 13.01
+        "from": "corner_23",
+        "to": "corner_28",
+        "weight": 8.732
       },
       {
-        "from": "b4_north_5",
-        "to": "b5_west_3",
-        "weight": 15.628
-      },
-      {
-        "from": "b4_north_5",
-        "to": "b5_south_6",
-        "weight": 15.953
-      },
-      {
-        "from": "b4_north_5",
-        "to": "b5_south_7",
-        "weight": 13.5
-      },
-      {
-        "from": "b4_north_5",
-        "to": "b6_east_0",
-        "weight": 12.258
-      },
-      {
-        "from": "b4_north_5",
-        "to": "b6_east_1",
-        "weight": 2.915
-      },
-      {
-        "from": "b4_north_5",
-        "to": "b6_south_6",
-        "weight": 4.528
-      },
-      {
-        "from": "b4_north_5",
-        "to": "b6_south_7",
-        "weight": 11.011
-      },
-      {
-        "from": "b4_south_7",
-        "to": "b6_west_3",
-        "weight": 17.692
-      },
-      {
-        "from": "b4_south_7",
-        "to": "b6_south_7",
-        "weight": 14.866
-      },
-      {
-        "from": "b5_east_0",
-        "to": "b5_north_4",
-        "weight": 2.828
-      },
-      {
-        "from": "b5_east_1",
-        "to": "b5_south_6",
-        "weight": 2.828
-      },
-      {
-        "from": "b5_west_2",
-        "to": "b5_north_5",
-        "weight": 2.828
-      },
-      {
-        "from": "b5_west_2",
-        "to": "b6_east_0",
-        "weight": 10.012
-      },
-      {
-        "from": "b5_west_2",
-        "to": "b6_west_2",
-        "weight": 14.866
-      },
-      {
-        "from": "b5_west_2",
-        "to": "b6_north_4",
-        "weight": 8.382
-      },
-      {
-        "from": "b5_west_2",
-        "to": "b6_north_5",
+        "from": "corner_23",
+        "to": "corner_29",
         "weight": 12.042
       },
       {
-        "from": "b5_west_2",
-        "to": "b8_east_0",
-        "weight": 17.241
+        "from": "corner_23",
+        "to": "corner_30",
+        "weight": 12.728
       },
       {
-        "from": "b5_west_2",
-        "to": "b8_east_1",
-        "weight": 16.508
+        "from": "corner_23",
+        "to": "corner_31",
+        "weight": 9.265
       },
       {
-        "from": "b5_west_3",
-        "to": "b5_south_7",
-        "weight": 2.828
+        "from": "corner_23",
+        "to": "corner_33",
+        "weight": 12.397
       },
       {
-        "from": "b5_west_3",
-        "to": "b6_east_0",
-        "weight": 3.536
+        "from": "corner_24",
+        "to": "corner_26",
+        "weight": 1.131
       },
       {
-        "from": "b5_west_3",
-        "to": "b6_east_1",
-        "weight": 14.009
+        "from": "corner_24",
+        "to": "corner_27",
+        "weight": 12.839
       },
       {
-        "from": "b5_west_3",
-        "to": "b6_north_4",
-        "weight": 2.915
+        "from": "corner_24",
+        "to": "corner_30",
+        "weight": 12.134
       },
       {
-        "from": "b5_west_3",
-        "to": "b6_north_5",
-        "weight": 9.124
+        "from": "corner_24",
+        "to": "corner_32",
+        "weight": 13.0
       },
       {
-        "from": "b5_west_3",
-        "to": "b8_east_1",
-        "weight": 17.923
+        "from": "corner_24",
+        "to": "corner_34",
+        "weight": 14.053
       },
       {
-        "from": "b5_north_5",
-        "to": "b6_west_2",
-        "weight": 17.692
+        "from": "corner_24",
+        "to": "corner_36",
+        "weight": 16.877
       },
       {
-        "from": "b5_north_5",
-        "to": "b6_north_5",
+        "from": "corner_24",
+        "to": "corner_38",
+        "weight": 16.83
+      },
+      {
+        "from": "corner_25",
+        "to": "corner_28",
+        "weight": 12.839
+      },
+      {
+        "from": "corner_25",
+        "to": "corner_31",
+        "weight": 12.134
+      },
+      {
+        "from": "corner_25",
+        "to": "corner_33",
+        "weight": 13.0
+      },
+      {
+        "from": "corner_25",
+        "to": "corner_35",
+        "weight": 14.053
+      },
+      {
+        "from": "corner_25",
+        "to": "corner_37",
+        "weight": 16.877
+      },
+      {
+        "from": "corner_25",
+        "to": "corner_39",
+        "weight": 16.83
+      },
+      {
+        "from": "corner_26",
+        "to": "corner_27",
+        "weight": 12.002
+      },
+      {
+        "from": "corner_26",
+        "to": "corner_28",
+        "weight": 17.201
+      },
+      {
+        "from": "corner_26",
+        "to": "corner_30",
+        "weight": 11.245
+      },
+      {
+        "from": "corner_26",
+        "to": "corner_32",
+        "weight": 11.962
+      },
+      {
+        "from": "corner_26",
+        "to": "corner_34",
+        "weight": 13.0
+      },
+      {
+        "from": "corner_26",
+        "to": "corner_36",
+        "weight": 15.749
+      },
+      {
+        "from": "corner_26",
+        "to": "corner_38",
+        "weight": 15.698
+      },
+      {
+        "from": "corner_26",
+        "to": "corner_42",
+        "weight": 15.2
+      },
+      {
+        "from": "corner_27",
+        "to": "corner_28",
+        "weight": 5.2
+      },
+      {
+        "from": "corner_27",
+        "to": "corner_29",
+        "weight": 17.201
+      },
+      {
+        "from": "corner_27",
+        "to": "corner_30",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_28",
+        "to": "corner_29",
+        "weight": 12.002
+      },
+      {
+        "from": "corner_28",
+        "to": "corner_31",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_29",
+        "to": "corner_31",
+        "weight": 11.245
+      },
+      {
+        "from": "corner_29",
+        "to": "corner_33",
+        "weight": 11.962
+      },
+      {
+        "from": "corner_29",
+        "to": "corner_35",
+        "weight": 13.0
+      },
+      {
+        "from": "corner_29",
+        "to": "corner_37",
+        "weight": 15.749
+      },
+      {
+        "from": "corner_29",
+        "to": "corner_39",
+        "weight": 15.698
+      },
+      {
+        "from": "corner_29",
+        "to": "corner_45",
+        "weight": 15.2
+      },
+      {
+        "from": "corner_30",
+        "to": "corner_32",
+        "weight": 3.2
+      },
+      {
+        "from": "corner_30",
+        "to": "corner_36",
+        "weight": 9.235
+      },
+      {
+        "from": "corner_30",
+        "to": "corner_38",
+        "weight": 10.0
+      },
+      {
+        "from": "corner_30",
+        "to": "corner_40",
+        "weight": 13.2
+      },
+      {
+        "from": "corner_31",
+        "to": "corner_33",
+        "weight": 3.2
+      },
+      {
+        "from": "corner_31",
+        "to": "corner_37",
+        "weight": 9.235
+      },
+      {
+        "from": "corner_31",
+        "to": "corner_39",
+        "weight": 10.0
+      },
+      {
+        "from": "corner_31",
+        "to": "corner_41",
+        "weight": 13.2
+      },
+      {
+        "from": "corner_32",
+        "to": "corner_36",
+        "weight": 6.053
+      },
+      {
+        "from": "corner_32",
+        "to": "corner_37",
+        "weight": 8.485
+      },
+      {
+        "from": "corner_32",
+        "to": "corner_38",
+        "weight": 6.8
+      },
+      {
+        "from": "corner_32",
+        "to": "corner_39",
+        "weight": 9.617
+      },
+      {
+        "from": "corner_32",
+        "to": "corner_40",
+        "weight": 10.0
+      },
+      {
+        "from": "corner_32",
+        "to": "corner_42",
+        "weight": 15.698
+      },
+      {
+        "from": "corner_32",
+        "to": "corner_46",
+        "weight": 16.83
+      },
+      {
+        "from": "corner_33",
+        "to": "corner_35",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_33",
+        "to": "corner_36",
+        "weight": 8.485
+      },
+      {
+        "from": "corner_33",
+        "to": "corner_37",
+        "weight": 6.053
+      },
+      {
+        "from": "corner_33",
+        "to": "corner_38",
+        "weight": 9.617
+      },
+      {
+        "from": "corner_33",
+        "to": "corner_39",
+        "weight": 6.8
+      },
+      {
+        "from": "corner_33",
+        "to": "corner_41",
+        "weight": 10.0
+      },
+      {
+        "from": "corner_33",
+        "to": "corner_45",
+        "weight": 15.698
+      },
+      {
+        "from": "corner_33",
+        "to": "corner_47",
+        "weight": 16.83
+      },
+      {
+        "from": "corner_34",
+        "to": "corner_35",
+        "weight": 5.2
+      },
+      {
+        "from": "corner_34",
+        "to": "corner_36",
+        "weight": 5.2
+      },
+      {
+        "from": "corner_34",
+        "to": "corner_37",
+        "weight": 7.354
+      },
+      {
+        "from": "corner_34",
+        "to": "corner_38",
+        "weight": 6.053
+      },
+      {
+        "from": "corner_34",
+        "to": "corner_39",
+        "weight": 8.485
+      },
+      {
+        "from": "corner_34",
+        "to": "corner_40",
+        "weight": 9.235
+      },
+      {
+        "from": "corner_34",
+        "to": "corner_42",
+        "weight": 15.749
+      },
+      {
+        "from": "corner_34",
+        "to": "corner_46",
+        "weight": 16.877
+      },
+      {
+        "from": "corner_35",
+        "to": "corner_36",
+        "weight": 7.354
+      },
+      {
+        "from": "corner_35",
+        "to": "corner_37",
+        "weight": 5.2
+      },
+      {
+        "from": "corner_35",
+        "to": "corner_38",
+        "weight": 8.485
+      },
+      {
+        "from": "corner_35",
+        "to": "corner_39",
+        "weight": 6.053
+      },
+      {
+        "from": "corner_35",
+        "to": "corner_41",
+        "weight": 9.235
+      },
+      {
+        "from": "corner_35",
+        "to": "corner_45",
+        "weight": 15.749
+      },
+      {
+        "from": "corner_35",
+        "to": "corner_47",
+        "weight": 16.877
+      },
+      {
+        "from": "corner_36",
+        "to": "corner_37",
+        "weight": 5.2
+      },
+      {
+        "from": "corner_36",
+        "to": "corner_38",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_36",
+        "to": "corner_42",
+        "weight": 13.0
+      },
+      {
+        "from": "corner_36",
+        "to": "corner_46",
+        "weight": 14.053
+      },
+      {
+        "from": "corner_37",
+        "to": "corner_39",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_37",
+        "to": "corner_45",
+        "weight": 13.0
+      },
+      {
+        "from": "corner_37",
+        "to": "corner_47",
+        "weight": 14.053
+      },
+      {
+        "from": "corner_38",
+        "to": "corner_40",
+        "weight": 3.2
+      },
+      {
+        "from": "corner_38",
+        "to": "corner_42",
+        "weight": 11.962
+      },
+      {
+        "from": "corner_38",
+        "to": "corner_46",
+        "weight": 13.0
+      },
+      {
+        "from": "corner_38",
+        "to": "corner_48",
+        "weight": 12.397
+      },
+      {
+        "from": "corner_38",
+        "to": "corner_50",
+        "weight": 13.342
+      },
+      {
+        "from": "corner_39",
+        "to": "corner_41",
+        "weight": 3.2
+      },
+      {
+        "from": "corner_39",
+        "to": "corner_45",
+        "weight": 11.962
+      },
+      {
+        "from": "corner_39",
+        "to": "corner_47",
+        "weight": 13.0
+      },
+      {
+        "from": "corner_39",
+        "to": "corner_49",
+        "weight": 12.397
+      },
+      {
+        "from": "corner_39",
+        "to": "corner_51",
+        "weight": 13.342
+      },
+      {
+        "from": "corner_40",
+        "to": "corner_42",
+        "weight": 11.245
+      },
+      {
+        "from": "corner_40",
+        "to": "corner_46",
+        "weight": 12.134
+      },
+      {
+        "from": "corner_40",
+        "to": "corner_48",
+        "weight": 9.265
+      },
+      {
+        "from": "corner_40",
+        "to": "corner_49",
+        "weight": 12.728
+      },
+      {
+        "from": "corner_40",
+        "to": "corner_50",
+        "weight": 10.249
+      },
+      {
+        "from": "corner_40",
+        "to": "corner_51",
+        "weight": 13.859
+      },
+      {
+        "from": "corner_41",
+        "to": "corner_44",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_41",
+        "to": "corner_45",
+        "weight": 11.245
+      },
+      {
+        "from": "corner_41",
+        "to": "corner_47",
+        "weight": 12.134
+      },
+      {
+        "from": "corner_41",
+        "to": "corner_48",
+        "weight": 12.728
+      },
+      {
+        "from": "corner_41",
+        "to": "corner_49",
+        "weight": 9.265
+      },
+      {
+        "from": "corner_41",
+        "to": "corner_50",
+        "weight": 13.859
+      },
+      {
+        "from": "corner_41",
+        "to": "corner_51",
+        "weight": 10.249
+      },
+      {
+        "from": "corner_42",
+        "to": "corner_43",
+        "weight": 12.002
+      },
+      {
+        "from": "corner_42",
+        "to": "corner_44",
+        "weight": 17.201
+      },
+      {
+        "from": "corner_42",
+        "to": "corner_46",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_42",
+        "to": "corner_48",
+        "weight": 12.042
+      },
+      {
+        "from": "corner_42",
+        "to": "corner_50",
+        "weight": 12.028
+      },
+      {
+        "from": "corner_42",
+        "to": "corner_52",
+        "weight": 17.979
+      },
+      {
+        "from": "corner_43",
+        "to": "corner_44",
+        "weight": 5.2
+      },
+      {
+        "from": "corner_43",
+        "to": "corner_45",
+        "weight": 17.201
+      },
+      {
+        "from": "corner_43",
+        "to": "corner_46",
+        "weight": 12.839
+      },
+      {
+        "from": "corner_43",
+        "to": "corner_48",
+        "weight": 8.732
+      },
+      {
+        "from": "corner_43",
+        "to": "corner_49",
+        "weight": 11.597
+      },
+      {
+        "from": "corner_43",
+        "to": "corner_50",
+        "weight": 9.769
+      },
+      {
+        "from": "corner_43",
+        "to": "corner_51",
+        "weight": 12.728
+      },
+      {
+        "from": "corner_44",
+        "to": "corner_45",
+        "weight": 12.002
+      },
+      {
+        "from": "corner_44",
+        "to": "corner_47",
+        "weight": 12.839
+      },
+      {
+        "from": "corner_44",
+        "to": "corner_48",
+        "weight": 11.597
+      },
+      {
+        "from": "corner_44",
+        "to": "corner_49",
+        "weight": 8.732
+      },
+      {
+        "from": "corner_44",
+        "to": "corner_50",
+        "weight": 12.728
+      },
+      {
+        "from": "corner_44",
+        "to": "corner_51",
+        "weight": 9.769
+      },
+      {
+        "from": "corner_45",
+        "to": "corner_47",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_45",
+        "to": "corner_49",
+        "weight": 12.042
+      },
+      {
+        "from": "corner_45",
+        "to": "corner_51",
+        "weight": 12.028
+      },
+      {
+        "from": "corner_45",
+        "to": "corner_53",
+        "weight": 17.979
+      },
+      {
+        "from": "corner_46",
+        "to": "corner_48",
+        "weight": 12.161
+      },
+      {
+        "from": "corner_46",
+        "to": "corner_50",
+        "weight": 12.042
+      },
+      {
+        "from": "corner_46",
+        "to": "corner_52",
+        "weight": 17.665
+      },
+      {
+        "from": "corner_47",
+        "to": "corner_49",
+        "weight": 12.161
+      },
+      {
+        "from": "corner_47",
+        "to": "corner_51",
+        "weight": 12.042
+      },
+      {
+        "from": "corner_47",
+        "to": "corner_53",
+        "weight": 17.665
+      },
+      {
+        "from": "corner_48",
+        "to": "corner_49",
+        "weight": 11.2
+      },
+      {
+        "from": "corner_48",
+        "to": "corner_50",
+        "weight": 1.131
+      },
+      {
+        "from": "corner_48",
+        "to": "corner_56",
         "weight": 14.866
       },
       {
-        "from": "b5_south_6",
-        "to": "b6_east_0",
-        "weight": 11.102
+        "from": "corner_48",
+        "to": "corner_60",
+        "weight": 15.996
       },
       {
-        "from": "b5_south_6",
-        "to": "b6_east_1",
-        "weight": 16.279
+        "from": "corner_49",
+        "to": "corner_59",
+        "weight": 14.866
       },
       {
-        "from": "b5_south_6",
-        "to": "b6_north_4",
-        "weight": 13.01
+        "from": "corner_49",
+        "to": "corner_63",
+        "weight": 15.996
       },
       {
-        "from": "b5_south_7",
-        "to": "b6_east_0",
-        "weight": 2.915
+        "from": "corner_50",
+        "to": "corner_52",
+        "weight": 7.2
       },
       {
-        "from": "b5_south_7",
-        "to": "b6_east_1",
-        "weight": 12.258
+        "from": "corner_50",
+        "to": "corner_56",
+        "weight": 13.736
       },
       {
-        "from": "b5_south_7",
-        "to": "b6_north_4",
-        "weight": 4.528
+        "from": "corner_50",
+        "to": "corner_57",
+        "weight": 10.394
       },
       {
-        "from": "b5_south_7",
-        "to": "b6_north_5",
-        "weight": 11.011
+        "from": "corner_50",
+        "to": "corner_60",
+        "weight": 14.866
       },
       {
-        "from": "b6_east_0",
-        "to": "b6_north_4",
-        "weight": 2.828
+        "from": "corner_50",
+        "to": "corner_61",
+        "weight": 11.065
       },
       {
-        "from": "b6_east_1",
-        "to": "b6_south_6",
-        "weight": 2.828
+        "from": "corner_51",
+        "to": "corner_53",
+        "weight": 7.2
       },
       {
-        "from": "b6_west_2",
-        "to": "b6_north_5",
-        "weight": 2.828
+        "from": "corner_51",
+        "to": "corner_58",
+        "weight": 10.394
       },
       {
-        "from": "b6_west_2",
-        "to": "b7_east_0",
-        "weight": 8.078
+        "from": "corner_51",
+        "to": "corner_59",
+        "weight": 13.736
       },
       {
-        "from": "b6_west_2",
-        "to": "b7_east_1",
-        "weight": 10.607
+        "from": "corner_51",
+        "to": "corner_62",
+        "weight": 11.065
       },
       {
-        "from": "b6_west_2",
-        "to": "b7_north_4",
-        "weight": 9.552
+        "from": "corner_51",
+        "to": "corner_63",
+        "weight": 14.866
       },
       {
-        "from": "b6_west_2",
-        "to": "b7_south_6",
-        "weight": 13.435
+        "from": "corner_52",
+        "to": "corner_54",
+        "weight": 1.131
       },
       {
-        "from": "b6_west_2",
-        "to": "b8_east_0",
-        "weight": 15.977
+        "from": "corner_52",
+        "to": "corner_56",
+        "weight": 9.677
       },
       {
-        "from": "b6_west_2",
-        "to": "b8_east_1",
-        "weight": 11.853
+        "from": "corner_52",
+        "to": "corner_57",
+        "weight": 3.606
       },
       {
-        "from": "b6_west_2",
-        "to": "b8_south_6",
-        "weight": 11.336
+        "from": "corner_52",
+        "to": "corner_61",
+        "weight": 3.985
       },
       {
-        "from": "b6_west_3",
-        "to": "b6_south_7",
-        "weight": 2.828
+        "from": "corner_52",
+        "to": "corner_65",
+        "weight": 13.055
       },
       {
-        "from": "b6_west_3",
-        "to": "b7_east_0",
-        "weight": 10.607
+        "from": "corner_53",
+        "to": "corner_55",
+        "weight": 1.131
       },
       {
-        "from": "b6_west_3",
-        "to": "b7_east_1",
-        "weight": 8.078
+        "from": "corner_53",
+        "to": "corner_58",
+        "weight": 3.606
       },
       {
-        "from": "b6_west_3",
-        "to": "b7_north_4",
-        "weight": 13.435
+        "from": "corner_53",
+        "to": "corner_59",
+        "weight": 9.677
       },
       {
-        "from": "b6_west_3",
-        "to": "b7_south_6",
-        "weight": 9.552
+        "from": "corner_53",
+        "to": "corner_62",
+        "weight": 3.985
       },
       {
-        "from": "b6_west_3",
-        "to": "b9_east_0",
-        "weight": 11.853
+        "from": "corner_53",
+        "to": "corner_66",
+        "weight": 13.055
       },
       {
-        "from": "b6_west_3",
-        "to": "b9_east_1",
-        "weight": 15.977
+        "from": "corner_54",
+        "to": "corner_55",
+        "weight": 11.2
       },
       {
-        "from": "b6_west_3",
-        "to": "b9_north_4",
-        "weight": 11.336
+        "from": "corner_54",
+        "to": "corner_56",
+        "weight": 10.239
       },
       {
-        "from": "b6_north_4",
-        "to": "b8_east_1",
-        "weight": 16.378
+        "from": "corner_54",
+        "to": "corner_57",
+        "weight": 3.561
       },
       {
-        "from": "b6_north_4",
-        "to": "b8_south_6",
-        "weight": 17.27
+        "from": "corner_54",
+        "to": "corner_58",
+        "weight": 14.172
       },
       {
-        "from": "b6_north_5",
-        "to": "b7_east_0",
-        "weight": 10.735
+        "from": "corner_54",
+        "to": "corner_61",
+        "weight": 3.606
       },
       {
-        "from": "b6_north_5",
-        "to": "b7_east_1",
-        "weight": 13.435
+        "from": "corner_54",
+        "to": "corner_62",
+        "weight": 13.537
       },
       {
-        "from": "b6_north_5",
-        "to": "b7_north_4",
-        "weight": 11.885
+        "from": "corner_54",
+        "to": "corner_65",
+        "weight": 12.363
       },
       {
-        "from": "b6_north_5",
-        "to": "b7_south_6",
-        "weight": 16.263
+        "from": "corner_54",
+        "to": "corner_66",
+        "weight": 17.974
       },
       {
-        "from": "b6_north_5",
-        "to": "b8_east_0",
-        "weight": 15.008
+        "from": "corner_55",
+        "to": "corner_57",
+        "weight": 14.172
       },
       {
-        "from": "b6_north_5",
-        "to": "b8_east_1",
-        "weight": 11.336
+        "from": "corner_55",
+        "to": "corner_58",
+        "weight": 3.561
       },
       {
-        "from": "b6_north_5",
-        "to": "b8_south_6",
-        "weight": 11.511
+        "from": "corner_55",
+        "to": "corner_59",
+        "weight": 10.239
       },
       {
-        "from": "b6_south_6",
-        "to": "b9_east_0",
-        "weight": 16.378
+        "from": "corner_55",
+        "to": "corner_61",
+        "weight": 13.537
       },
       {
-        "from": "b6_south_6",
-        "to": "b9_north_4",
-        "weight": 17.27
+        "from": "corner_55",
+        "to": "corner_62",
+        "weight": 3.606
       },
       {
-        "from": "b6_south_7",
-        "to": "b7_east_0",
-        "weight": 13.435
+        "from": "corner_55",
+        "to": "corner_65",
+        "weight": 17.974
       },
       {
-        "from": "b6_south_7",
-        "to": "b7_east_1",
-        "weight": 10.735
+        "from": "corner_55",
+        "to": "corner_66",
+        "weight": 12.363
       },
       {
-        "from": "b6_south_7",
-        "to": "b7_north_4",
-        "weight": 16.263
+        "from": "corner_56",
+        "to": "corner_57",
+        "weight": 7.2
       },
       {
-        "from": "b6_south_7",
-        "to": "b7_south_6",
-        "weight": 11.885
+        "from": "corner_56",
+        "to": "corner_60",
+        "weight": 1.131
       },
       {
-        "from": "b6_south_7",
-        "to": "b9_east_0",
-        "weight": 11.336
+        "from": "corner_57",
+        "to": "corner_58",
+        "weight": 16.8
       },
       {
-        "from": "b6_south_7",
-        "to": "b9_east_1",
-        "weight": 15.008
+        "from": "corner_57",
+        "to": "corner_61",
+        "weight": 1.131
       },
       {
-        "from": "b6_south_7",
-        "to": "b9_north_4",
-        "weight": 11.511
+        "from": "corner_57",
+        "to": "corner_62",
+        "weight": 16.02
       },
       {
-        "from": "b7_east_0",
-        "to": "b7_north_4",
-        "weight": 2.828
+        "from": "corner_58",
+        "to": "corner_59",
+        "weight": 7.2
       },
       {
-        "from": "b7_east_0",
-        "to": "b8_east_1",
-        "weight": 13.647
+        "from": "corner_58",
+        "to": "corner_61",
+        "weight": 16.02
       },
       {
-        "from": "b7_east_0",
-        "to": "b8_south_6",
-        "weight": 11.5
+        "from": "corner_58",
+        "to": "corner_62",
+        "weight": 1.131
       },
       {
-        "from": "b7_east_0",
-        "to": "b9_north_4",
-        "weight": 16.0
+        "from": "corner_59",
+        "to": "corner_63",
+        "weight": 1.131
       },
       {
-        "from": "b7_east_1",
-        "to": "b7_south_6",
-        "weight": 2.828
+        "from": "corner_60",
+        "to": "corner_64",
+        "weight": 9.2
       },
       {
-        "from": "b7_east_1",
-        "to": "b8_south_6",
-        "weight": 16.0
+        "from": "corner_61",
+        "to": "corner_62",
+        "weight": 15.2
       },
       {
-        "from": "b7_east_1",
-        "to": "b9_east_0",
-        "weight": 13.647
+        "from": "corner_61",
+        "to": "corner_65",
+        "weight": 9.2
       },
       {
-        "from": "b7_east_1",
-        "to": "b9_north_4",
-        "weight": 11.5
+        "from": "corner_61",
+        "to": "corner_66",
+        "weight": 17.767
       },
       {
-        "from": "b7_west_2",
-        "to": "b7_north_5",
-        "weight": 2.828
+        "from": "corner_62",
+        "to": "corner_65",
+        "weight": 17.767
       },
       {
-        "from": "b7_west_2",
-        "to": "b8_west_3",
-        "weight": 13.647
+        "from": "corner_62",
+        "to": "corner_66",
+        "weight": 9.2
       },
       {
-        "from": "b7_west_2",
-        "to": "b8_south_7",
-        "weight": 11.5
+        "from": "corner_63",
+        "to": "corner_67",
+        "weight": 9.2
       },
       {
-        "from": "b7_west_2",
-        "to": "b9_north_5",
-        "weight": 16.0
+        "from": "corner_65",
+        "to": "corner_66",
+        "weight": 15.2
       },
       {
-        "from": "b7_west_3",
-        "to": "b7_south_7",
-        "weight": 2.828
+        "from": "corner_65",
+        "to": "corner_70",
+        "weight": 16.02
       },
       {
-        "from": "b7_west_3",
-        "to": "b8_south_7",
-        "weight": 16.0
+        "from": "corner_66",
+        "to": "corner_69",
+        "weight": 16.02
       },
       {
-        "from": "b7_west_3",
-        "to": "b9_west_2",
-        "weight": 13.647
+        "from": "corner_66",
+        "to": "corner_70",
+        "weight": 1.131
       },
       {
-        "from": "b7_west_3",
-        "to": "b9_north_5",
-        "weight": 11.5
+        "from": "corner_68",
+        "to": "corner_69",
+        "weight": 7.2
       },
       {
-        "from": "b7_north_4",
-        "to": "b8_east_1",
-        "weight": 12.176
+        "from": "corner_69",
+        "to": "corner_70",
+        "weight": 16.8
       },
       {
-        "from": "b7_north_4",
-        "to": "b8_south_6",
-        "weight": 9.708
-      },
-      {
-        "from": "b7_north_4",
-        "to": "b8_south_7",
-        "weight": 15.7
-      },
-      {
-        "from": "b7_north_5",
-        "to": "b8_west_3",
-        "weight": 12.176
-      },
-      {
-        "from": "b7_north_5",
-        "to": "b8_south_6",
-        "weight": 15.7
-      },
-      {
-        "from": "b7_north_5",
-        "to": "b8_south_7",
-        "weight": 9.708
-      },
-      {
-        "from": "b7_south_6",
-        "to": "b9_east_0",
-        "weight": 12.176
-      },
-      {
-        "from": "b7_south_6",
-        "to": "b9_north_4",
-        "weight": 9.708
-      },
-      {
-        "from": "b7_south_6",
-        "to": "b9_north_5",
-        "weight": 15.7
-      },
-      {
-        "from": "b7_south_7",
-        "to": "b9_west_2",
-        "weight": 12.176
-      },
-      {
-        "from": "b7_south_7",
-        "to": "b9_north_4",
-        "weight": 15.7
-      },
-      {
-        "from": "b7_south_7",
-        "to": "b9_north_5",
-        "weight": 9.708
-      },
-      {
-        "from": "b8_east_0",
-        "to": "b8_north_4",
-        "weight": 2.828
-      },
-      {
-        "from": "b8_east_1",
-        "to": "b8_south_6",
-        "weight": 2.828
-      },
-      {
-        "from": "b8_west_2",
-        "to": "b8_north_5",
-        "weight": 2.828
-      },
-      {
-        "from": "b8_west_3",
-        "to": "b8_south_7",
-        "weight": 2.828
-      },
-      {
-        "from": "b9_east_0",
-        "to": "b9_north_4",
-        "weight": 2.828
-      },
-      {
-        "from": "b9_east_1",
-        "to": "b9_south_6",
-        "weight": 2.828
-      },
-      {
-        "from": "b9_west_2",
-        "to": "b9_north_5",
-        "weight": 2.828
-      },
-      {
-        "from": "b9_west_3",
-        "to": "b9_south_7",
-        "weight": 2.828
+        "from": "corner_70",
+        "to": "corner_71",
+        "weight": 7.2
       }
     ]
   }
 }
-
-

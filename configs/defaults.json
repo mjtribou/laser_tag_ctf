@@ -10,7 +10,7 @@
     "flag_return_seconds": 10,
     "friendly_fire": false,
     "bot_fill": true,
-    "bot_per_team_target": 4,
+    "bot_per_team_target": 1,
     "bots_target_players": true
   },
   "gameplay": {

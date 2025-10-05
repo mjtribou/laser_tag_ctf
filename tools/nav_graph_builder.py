@@ -1,58 +1,22 @@
-"""Utility to synthesize navigation nodes/links for block-based maps.
-
-Usage:
-    python tools/nav_graph_builder.py configs/maps/ai_test.json --output nav_auto.json
-
-The tool analyzes axis-aligned block obstacles in the map and places cover nodes
-around each qualifying block. It emits nav nodes and links compatible with the
-`game.map_gen` TacticalGraph schema.
-"""
+"""Generate navigation nodes/links using a 3×3 corner kernel on the voxel map."""
 
 from __future__ import annotations
 
 import argparse
 import json
-import sys
 import math
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Sequence, Tuple
-
 
 ROOT_DIR = Path(__file__).resolve().parents[1]
 if str(ROOT_DIR) not in sys.path:
     sys.path.insert(0, str(ROOT_DIR))
 
-@dataclass
-class Block:
-    """Simple wrapper to make obstacle calculations easier."""
-
-    center: Tuple[float, float, float]
-    size: Tuple[float, float, float]
-    box_type: int
-
-    @property
-    def half_extents(self) -> Tuple[float, float, float]:
-        return (self.size[0] * 0.5, self.size[1] * 0.5, self.size[2] * 0.5)
-
-    @property
-    def base_z(self) -> float:
-        return self.center[2] - self.half_extents[2]
-
-
-def _is_floor(block: Block, *, floor_height: float = 1.05) -> bool:
-    return block.size[2] <= floor_height
-
-
-def _point_inside_block(pos: Tuple[float, float, float], block: Block, padding: float = 0.0) -> bool:
-    px, py, pz = pos
-    cx, cy, cz = block.center
-    hx, hy, hz = block.half_extents
-    return (
-        abs(px - cx) <= hx + padding
-        and abs(py - cy) <= hy + padding
-        and abs(pz - cz) <= hz + padding
-    )
+from game.map_gen import load_from_file
+from world.map_adapter import load_map_to_voxels
+from world.voxel_grid import VoxelGrid
 
 
 @dataclass
@@ -76,262 +40,227 @@ class SynthLink:
 class NavBuilder:
     def __init__(
         self,
+        grid: VoxelGrid,
+        origin_indices: Tuple[int, int, int],
+        cube_size: float,
         agent_radius: float,
         bounds: Sequence[float],
         *,
-        cover_offset: Optional[float] = None,
-        corner_gap: Optional[float] = None,
         link_radius: float = 18.0,
     ) -> None:
+        self.grid = grid
+        self.origin = origin_indices
+        self.cube = float(cube_size)
         self.agent_radius = max(0.1, agent_radius)
-        self.cover_offset = cover_offset if cover_offset is not None else self.agent_radius + 0.75
-        self.corner_gap = corner_gap if corner_gap is not None else max(0.75, self.agent_radius * 0.9)
-        self.link_radius = max(4.0, link_radius)
         self.bounds_x = float(bounds[0]) if bounds else 0.0
+        self.link_radius = max(4.0, link_radius)
 
-        self.blocks: List[Block] = []
+        self.corner_offset = max(0.35, self.agent_radius * 0.8)
+        self.height_offset = max(0.1, self.agent_radius * 0.2)
+
         self.nodes: List[SynthNode] = []
         self.links: List[SynthLink] = []
+        self._dedupe_keys: set[Tuple[int, int, int, int]] = set()
 
-    def add_block(self, block: Block) -> None:
-        self.blocks.append(block)
-
-    # --- node synthesis -------------------------------------------------
+        self._solid = self._collect_solids()
 
     def build(self) -> None:
-        ring_registry: Dict[int, List[SynthNode]] = {}
-        for index, block in enumerate(self.blocks):
-            if _is_floor(block) or block.size[2] < 1.5:
-                continue
-            hx, hy, hz = block.half_extents
-            if hx < 1.0 or hy < 1.0:
-                continue
+        walkable = self._collect_walkable_cells()
+        self._emit_corner_nodes(walkable)
+        self._connect_nodes()
 
-            ring_nodes = self._build_nodes_for_block(index, block)
-            if not ring_nodes:
-                continue
-            ring_registry[index] = ring_nodes
-            self.nodes.extend(ring_nodes)
+    def _collect_solids(self) -> set[Tuple[int, int, int]]:
+        solids: set[Tuple[int, int, int]] = set()
+        for x in range(self.grid.size_x):
+            for y in range(self.grid.size_y):
+                for z in range(self.grid.size_z):
+                    if not self.grid.is_air(x, y, z):
+                        solids.add((x, y, z))
+        return solids
 
-        for block_index, ring_nodes in ring_registry.items():
-            self._connect_ring_neighbors(ring_nodes)
+    def _is_solid(self, x: int, y: int, z: int) -> bool:
+        if not (0 <= x < self.grid.size_x and 0 <= y < self.grid.size_y and 0 <= z < self.grid.size_z):
+            return False
+        return (x, y, z) in self._solid
 
-        self._connect_proximity_links(self.nodes)
+    def _collect_walkable_cells(self) -> List[Tuple[int, int, int]]:
+        walkable: List[Tuple[int, int, int]] = []
+        for x in range(self.grid.size_x):
+            for y in range(self.grid.size_y):
+                for z in range(1, self.grid.size_z):
+                    if not self.grid.is_air(x, y, z):
+                        continue
+                    if self.grid.is_air(x, y, z - 1):
+                        continue
+                    if z + 1 < self.grid.size_z and not self.grid.is_air(x, y, z + 1):
+                        continue
+                    walkable.append((x, y, z))
+        return walkable
 
-    # --- helpers --------------------------------------------------------
+    def _emit_corner_nodes(self, walkable: Iterable[Tuple[int, int, int]]) -> None:
+        for x, y, z in walkable:
+            has_n = self._has_wall(x, y + 1, z)
+            has_s = self._has_wall(x, y - 1, z)
+            has_e = self._has_wall(x + 1, y, z)
+            has_w = self._has_wall(x - 1, y, z)
 
-    def _segment_block_intersection(
-        self,
-        start: Tuple[float, float, float],
-        end: Tuple[float, float, float],
-        *,
-        margin: float = 0.1,
-    ) -> bool:
-        """Check if the segment from start→end intersects any non-floor block."""
+            free_ne = self._corner_open(x + 1, y + 1, z)
+            free_nw = self._corner_open(x - 1, y + 1, z)
+            free_se = self._corner_open(x + 1, y - 1, z)
+            free_sw = self._corner_open(x - 1, y - 1, z)
 
-        sx, sy, sz = start
-        ex, ey, ez = end
-        dx = ex - sx
-        dy = ey - sy
-        dz = ez - sz
+            if has_n:
+                if free_ne:
+                    self._create_corner_node(x, y, z, sx=1, sy=1)
+                if free_nw:
+                    self._create_corner_node(x, y, z, sx=-1, sy=1)
+            if has_s:
+                if free_se:
+                    self._create_corner_node(x, y, z, sx=1, sy=-1)
+                if free_sw:
+                    self._create_corner_node(x, y, z, sx=-1, sy=-1)
+            if has_e:
+                if free_ne:
+                    self._create_corner_node(x, y, z, sx=1, sy=1)
+                if free_se:
+                    self._create_corner_node(x, y, z, sx=1, sy=-1)
+            if has_w:
+                if free_nw:
+                    self._create_corner_node(x, y, z, sx=-1, sy=1)
+                if free_sw:
+                    self._create_corner_node(x, y, z, sx=-1, sy=-1)
 
-        for block in self.blocks:
-            if _is_floor(block):
-                continue
-            cx, cy, cz = block.center
-            hx, hy, hz = block.half_extents
-            hx += margin
-            hy += margin
-            hz += margin
+    def _has_wall(self, x: int, y: int, z: int) -> bool:
+        return any(self._is_solid(x, y, z + dz) for dz in (0, 1, 2))
 
-            tx_min, tx_max = self._axis_interval(sx, dx, cx, hx)
-            ty_min, ty_max = self._axis_interval(sy, dy, cy, hy)
-            tz_min, tz_max = self._axis_interval(sz, dz, cz, hz)
+    def _corner_open(self, x: int, y: int, z: int) -> bool:
+        return all(not self._is_solid(x, y, z + dz) for dz in (0, 1))
 
-            t_enter = max(tx_min, ty_min, tz_min)
-            t_exit = min(tx_max, ty_max, tz_max)
+    def _create_corner_node(self, x: int, y: int, z: int, sx: int, sy: int) -> None:
+        key = (x, y, z, (sx > 0) << 1 | (sy > 0))
+        if key in self._dedupe_keys:
+            return
 
-            if t_enter <= t_exit and t_exit >= 0.0 and t_enter <= 1.0:
-                # Ignore the case where the only overlap is due to an endpoint resting on the surface.
-                if t_enter > 1e-4 or t_exit < 1.0 - 1e-4:
-                    return True
-        return False
+        world_pos = self._corner_world_position(x, y, z, sx, sy)
+        if self._point_in_wall(world_pos):
+            return
 
-    @staticmethod
-    def _axis_interval(s: float, ds: float, center: float, half_extent: float) -> Tuple[float, float]:
-        if abs(ds) < 1e-9:
-            if abs(s - center) <= half_extent:
-                return (0.0, 1.0)
-            return (float("inf"), float("-inf"))
-        inv = 1.0 / ds
-        t1 = (center - half_extent - s) * inv
-        t2 = (center + half_extent - s) * inv
-        return (min(t1, t2), max(t1, t2))
+        facing = self._compute_facing_vector(sx, sy)
+        tags = self._corner_tags(world_pos[0], sx, sy)
 
-    def _build_nodes_for_block(self, index: int, block: Block) -> List[SynthNode]:
-        cx, cy, cz = block.center
-        hx, hy, hz = block.half_extents
-        base_z = block.base_z
-
-        gap = min(self.corner_gap, max(0.25, min(hx, hy) - 0.25))
-        z_pos = base_z
-
-        team_tag = self._team_tag_for_block(block)
-        block_tag = f"block:{index}"
-
-        result: List[SynthNode] = []
-
-        def make_node(node_id: str, x: float, y: float, facing: Tuple[float, float, float], side_tag: str, corner_tag: str) -> None:
-            pos = (x, y, z_pos)
-            if self._collides_with_any_block(pos):
-                return
-            fx, fy, fz = facing
-            length = math.sqrt(fx * fx + fy * fy + fz * fz)
-            if length < 1e-6:
-                facing_vec = (0.0, 1.0, 0.0)
-            else:
-                inv = 1.0 / length
-                facing_vec = (fx * inv, fy * inv, fz * inv)
-
-            tags = ["cover", "peek", block_tag, side_tag, corner_tag, team_tag]
-            node = SynthNode(
-                node_id=node_id,
-                pos=pos,
-                kind="cover",
-                tags=tuple(tags),
-                facing=facing_vec,
-                radius=max(self.agent_radius + 0.1, 0.5),
-            )
-            result.append(node)
-
-        # Side builders: east, west, north, south
-        side_specs = [
-            {
-                "name": "east",
-                "x": cx + hx + self.cover_offset,
-                "y_offsets": self._side_offsets(hy, gap),
-                "facing": [(0.0, 1.0, 0.0), (0.0, -1.0, 0.0)],
-                "corner_tags": ["corner:NE", "corner:SE"],
-            },
-            {
-                "name": "west",
-                "x": cx - hx - self.cover_offset,
-                "y_offsets": self._side_offsets(hy, gap),
-                "facing": [(0.0, 1.0, 0.0), (0.0, -1.0, 0.0)],
-                "corner_tags": ["corner:NW", "corner:SW"],
-            },
-        ]
-
-        north_offsets = self._side_offsets(hx, gap)
-        south_offsets = self._side_offsets(hx, gap)
-
-        side_specs.extend(
-            [
-                {
-                    "name": "north",
-                    "y": cy + hy + self.cover_offset,
-                    "x_offsets": north_offsets,
-                    "facing": [(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0)],
-                    "corner_tags": ["corner:NE", "corner:NW"],
-                },
-                {
-                    "name": "south",
-                    "y": cy - hy - self.cover_offset,
-                    "x_offsets": south_offsets,
-                    "facing": [(1.0, 0.0, 0.0), (-1.0, 0.0, 0.0)],
-                    "corner_tags": ["corner:SE", "corner:SW"],
-                },
-            ]
+        node = SynthNode(
+            node_id=f"corner_{len(self.nodes)}",
+            pos=world_pos,
+            kind="cover",
+            tags=tags,
+            facing=facing,
+            radius=max(self.agent_radius + 0.1, 0.5),
         )
+        self.nodes.append(node)
+        self._dedupe_keys.add(key)
 
-        counter = 0
-        for spec in side_specs:
-            side_name = spec["name"]
-            side_tag = f"side:{side_name}"
-            if side_name in ("east", "west"):
-                x = spec["x"]
-                offsets = spec["y_offsets"]
-                facings = spec["facing"]
-                corner_tags = spec["corner_tags"]
-                for idx, offset in enumerate(offsets):
-                    y = cy + offset
-                    facing = facings[min(idx, len(facings) - 1)]
-                    corner_tag = corner_tags[min(idx, len(corner_tags) - 1)]
-                    node_id = f"b{index}_{side_name}_{counter}"
-                    counter += 1
-                    make_node(node_id, x, y, facing, side_tag, corner_tag)
-            else:
-                y = spec["y"]
-                offsets = spec["x_offsets"]
-                facings = spec["facing"]
-                corner_tags = spec["corner_tags"]
-                for idx, offset in enumerate(offsets):
-                    x = cx + offset
-                    facing = facings[min(idx, len(facings) - 1)]
-                    corner_tag = corner_tags[min(idx, len(corner_tags) - 1)]
-                    node_id = f"b{index}_{side_name}_{counter}"
-                    counter += 1
-                    make_node(node_id, x, y, facing, side_tag, corner_tag)
+    def _corner_world_position(self, x: int, y: int, z: int, sx: int, sy: int) -> Tuple[float, float, float]:
+        if sx > 0:
+            plane_x = (self.origin[0] + x + 1) * self.cube
+            pos_x = plane_x - self.corner_offset
+        else:
+            plane_x = (self.origin[0] + x) * self.cube
+            pos_x = plane_x + self.corner_offset
 
-        return result
+        if sy > 0:
+            plane_y = (self.origin[1] + y + 1) * self.cube
+            pos_y = plane_y - self.corner_offset
+        else:
+            plane_y = (self.origin[1] + y) * self.cube
+            pos_y = plane_y + self.corner_offset
 
-    def _side_offsets(self, half_extent: float, gap: float) -> List[float]:
-        if half_extent <= gap:
-            return [0.0]
-        offset = max(0.0, half_extent - gap)
-        if offset <= 1e-6:
-            return [0.0]
-        return [offset, -offset]
+        floor_plane = (self.origin[2] + z) * self.cube
+        pos_z = floor_plane + self.height_offset
+        return (pos_x, pos_y, pos_z)
 
-    def _collides_with_any_block(self, pos: Tuple[float, float, float]) -> bool:
-        for block in self.blocks:
-            if _is_floor(block):
-                continue
-            if _point_inside_block(pos, block, padding=0.05):
-                return True
+    def _point_in_wall(self, world_pos: Tuple[float, float, float]) -> bool:
+        gx, gy, gz = self._world_to_grid_float(world_pos)
+        ix = int(round(gx))
+        iy = int(round(gy))
+        iz = max(1, int(round(gz)))
+        if iz < self.grid.size_z and self._is_solid(ix, iy, iz):
+            return True
+        if iz + 1 < self.grid.size_z and self._is_solid(ix, iy, iz + 1):
+            return True
         return False
 
-    def _team_tag_for_block(self, block: Block) -> str:
-        cx = block.center[0]
+    def _compute_facing_vector(self, sx: int, sy: int) -> Tuple[float, float, float]:
+        vx = -float(sx)
+        vy = -float(sy)
+        length = math.hypot(vx, vy)
+        if length < 1e-6:
+            return (0.0, 1.0, 0.0)
+        return (vx / length, vy / length, 0.0)
+
+    def _corner_tags(self, world_x: float, sx: int, sy: int) -> Tuple[str, ...]:
+        tags = {"cover", "peek", self._team_tag(world_x)}
+        tags.add("side:east" if sx > 0 else "side:west")
+        tags.add("side:north" if sy > 0 else "side:south")
+        if sx > 0 and sy > 0:
+            tags.add("corner:NE")
+        elif sx > 0 and sy < 0:
+            tags.add("corner:SE")
+        elif sx < 0 and sy > 0:
+            tags.add("corner:NW")
+        else:
+            tags.add("corner:SW")
+        return tuple(sorted(tags))
+
+    def _team_tag(self, world_x: float) -> str:
         threshold = max(5.0, 0.15 * self.bounds_x)
-        if cx <= -threshold:
+        if world_x <= -threshold:
             return "team:red_area"
-        if cx >= threshold:
+        if world_x >= threshold:
             return "team:blue_area"
         return "team:neutral_area"
 
-    # --- link synthesis -------------------------------------------------
-
-    def _connect_ring_neighbors(self, nodes: Sequence[SynthNode]) -> None:
-        if len(nodes) < 2:
-            return
-        count = len(nodes)
-        for i in range(count):
-            a = nodes[i]
-            b = nodes[(i + 1) % count]
-            weight = self._distance(a.pos, b.pos)
-            if self._segment_block_intersection(a.pos, b.pos):
-                continue
-            self.links.append(SynthLink(source=a.node_id, target=b.node_id, weight=weight, bidirectional=True))
-
-    def _connect_proximity_links(self, nodes: Sequence[SynthNode]) -> None:
-        link_keys: set[Tuple[str, str]] = set(
-            tuple(sorted((link.source, link.target))) for link in self.links
-        )
-        for i in range(len(nodes)):
-            a = nodes[i]
-            for j in range(i + 1, len(nodes)):
-                b = nodes[j]
-                key = tuple(sorted((a.node_id, b.node_id)))
-                if key in link_keys:
-                    continue
+    def _connect_nodes(self) -> None:
+        links: List[SynthLink] = []
+        for i, a in enumerate(self.nodes):
+            for j in range(i + 1, len(self.nodes)):
+                b = self.nodes[j]
                 dist = self._distance(a.pos, b.pos)
                 if dist > self.link_radius:
                     continue
-                if self._segment_block_intersection(a.pos, b.pos):
+                if self._segment_intersects_solid(a.pos, b.pos):
                     continue
-                link_keys.add(key)
-                self.links.append(SynthLink(source=a.node_id, target=b.node_id, weight=dist, bidirectional=True))
+                links.append(SynthLink(source=a.node_id, target=b.node_id, weight=dist, bidirectional=True))
+        self.links = links
+
+    def _segment_intersects_solid(self, start: Tuple[float, float, float], end: Tuple[float, float, float]) -> bool:
+        sx, sy, sz = self._world_to_grid_float(start)
+        ex, ey, ez = self._world_to_grid_float(end)
+
+        dx = ex - sx
+        dy = ey - sy
+        dz = ez - sz
+        steps = max(abs(dx), abs(dy), abs(dz))
+        steps = max(1, int(math.ceil(steps) * 6))
+
+        for step in range(1, steps):
+            t = step / steps
+            gx = sx + dx * t
+            gy = sy + dy * t
+            gz = sz + dz * t
+            ix = int(round(gx))
+            iy = int(round(gy))
+            iz = int(round(gz))
+            if self._is_solid(ix, iy, iz):
+                return True
+        return False
+
+    def _world_to_grid_float(self, pos: Tuple[float, float, float]) -> Tuple[float, float, float]:
+        x, y, z = pos
+        ox, oy, oz = self.origin
+        gx = (x / self.cube) - ox - 0.5
+        gy = (y / self.cube) - oy - 0.5
+        gz = (z / self.cube) - oz - 0.5
+        return gx, gy, gz
 
     @staticmethod
     def _distance(a: Tuple[float, float, float], b: Tuple[float, float, float]) -> float:
@@ -339,6 +268,105 @@ class NavBuilder:
         dy = a[1] - b[1]
         dz = a[2] - b[2]
         return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+
+def render_topdown(
+    builder: NavBuilder,
+    nodes: Sequence[SynthNode],
+    links: Sequence[SynthLink],
+    output_path: Path,
+) -> None:
+    from PIL import Image, ImageDraw
+
+    scale = 12
+    width = builder.grid.size_x * scale
+    height = builder.grid.size_y * scale
+    img = Image.new("RGB", (width, height), (26, 26, 28))
+    draw = ImageDraw.Draw(img)
+
+    # Precompute tallest solid for each column for height-based coloring
+    column_height: Dict[Tuple[int, int], int] = {}
+    max_height = 0
+    for x in range(builder.grid.size_x):
+        for y in range(builder.grid.size_y):
+            top = -1
+            for z in range(builder.grid.size_z - 1, -1, -1):
+                if builder._is_solid(x, y, z):
+                    top = z
+                    break
+            column_height[(x, y)] = top
+            if top > max_height:
+                max_height = top
+
+    # Draw solid columns with height-based shading
+    for x in range(builder.grid.size_x):
+        for y in range(builder.grid.size_y):
+            top = column_height[(x, y)]
+            if top >= 0:
+                t_norm = (top + 1) / max(1, max_height + 1)
+                intensity = int(60 + 140 * t_norm)
+                color = (intensity, intensity, intensity)
+            else:
+                color = (32, 32, 36)
+            x0 = x * scale
+            y0 = height - (y + 1) * scale
+            draw.rectangle([x0, y0, x0 + scale - 1, y0 + scale - 1], fill=color)
+
+    # Overlay grid lines
+    grid_color = (0, 0, 0)
+    for x in range(builder.grid.size_x + 1):
+        px = x * scale
+        draw.line([(px, 0), (px, height)], fill=grid_color, width=1)
+    for y in range(builder.grid.size_y + 1):
+        py = height - y * scale
+        draw.line([(0, py), (width, py)], fill=grid_color, width=1)
+
+    # Helper to convert a world position into pixel coordinates
+    def world_to_pixel(pos: Tuple[float, float, float]) -> Tuple[int, int]:
+        gx, gy, _ = builder._world_to_grid_float(pos)
+        px = int(round(gx)) * scale + scale // 2
+        py = height - (int(round(gy)) * scale + scale // 2)
+        return px, py
+
+    node_lookup: Dict[str, SynthNode] = {node.node_id: node for node in nodes}
+
+    # Draw links first (under nodes)
+    for link in links:
+        a = node_lookup.get(link.source)
+        b = node_lookup.get(link.target)
+        if not a or not b:
+            continue
+        ax, ay = world_to_pixel(a.pos)
+        bx, by = world_to_pixel(b.pos)
+        draw.line([ax, ay, bx, by], fill=(90, 120, 170), width=1)
+
+    # Draw nodes
+    node_radius = max(4, scale // 2)
+    corner_colors = {
+        "corner:NE": (120, 220, 120),
+        "corner:SE": (240, 200, 120),
+        "corner:SW": (220, 120, 120),
+        "corner:NW": (120, 160, 240),
+    }
+    for node in nodes:
+        px, py = world_to_pixel(node.pos)
+        r = node_radius
+        fill = None
+        for corner_tag, color in corner_colors.items():
+            if corner_tag in node.tags:
+                fill = color
+                break
+        if fill is None:
+            if "team:red_area" in node.tags:
+                fill = (220, 90, 90)
+            elif "team:blue_area" in node.tags:
+                fill = (90, 160, 230)
+            else:
+                fill = (200, 200, 200)
+        draw.ellipse([px - r, py - r, px + r, py + r], fill=fill, outline=(0, 0, 0))
+
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    img.save(output_path)
 
 
 def _round_tuple(values: Iterable[float], digits: int = 3) -> List[float]:
@@ -371,44 +399,87 @@ def _link_to_dict(link: SynthLink) -> Dict[str, object]:
     return payload
 
 
-def build_nav_graph(map_path: Path, *, include_existing: bool = False, link_radius: float = 18.0) -> Dict[str, List[Dict[str, object]]]:
-    with open(map_path, "r", encoding="utf-8") as handle:
-        data = json.load(handle)
+def _compute_origin_indices(mapdata) -> Tuple[int, int, int]:
+    cube = float(getattr(mapdata, "cube_size", 1.0) or 1.0)
+    min_x = min_y = min_z = None
+    for block in getattr(mapdata, "blocks", []) or []:
+        ix = int(math.floor(((block.pos[0] - 0.5 * cube) / cube) + 1e-6))
+        iy = int(math.floor(((block.pos[1] - 0.5 * cube) / cube) + 1e-6))
+        iz = int(math.floor(((block.pos[2] - 0.5 * cube) / cube) + 1e-6))
+        min_x = ix if min_x is None else min(min_x, ix)
+        min_y = iy if min_y is None else min(min_y, iy)
+        min_z = iz if min_z is None else min(min_z, iz)
+    if min_x is None:
+        return (0, 0, 0)
+    return (min_x, min_y, min_z)
 
-    bounds = data.get("bounds", (0.0, 0.0))
-    agent_radius = float(data.get("agent_radius", 0.5) or 0.5)
+
+def build_nav_graph(
+    map_path: Path,
+    *,
+    include_existing: bool = False,
+    link_radius: float = 18.0,
+    render_path: Optional[Path] = None,
+) -> Dict[str, List[Dict[str, object]]]:
+    mapdata = load_from_file(str(map_path))
+    grid, _registry, existing_graph = load_map_to_voxels(str(map_path))
+    origin = _compute_origin_indices(mapdata)
 
     builder = NavBuilder(
-        agent_radius=agent_radius,
-        bounds=bounds,
+        grid=grid,
+        origin_indices=origin,
+        cube_size=getattr(mapdata, "cube_size", 1.0),
+        agent_radius=getattr(mapdata, "agent_radius", 0.5) or 0.5,
+        bounds=getattr(mapdata, "bounds", (0.0, 0.0)),
         link_radius=link_radius,
     )
-
-    for raw in data.get("blocks", []):
-        block = Block(center=tuple(raw.get("pos", (0.0, 0.0, 0.0))), size=tuple(raw.get("size", (1.0, 1.0, 1.0))), box_type=int(raw.get("box_type", 0)))
-        builder.add_block(block)
-
     builder.build()
 
-    nodes = [_node_to_dict(node) for node in builder.nodes]
-    links = [_link_to_dict(link) for link in builder.links]
+    raw_nodes = list(builder.nodes)
+    raw_links = list(builder.links)
 
-    if include_existing:
-        nav = data.get("nav", {}) or {}
-        nodes.extend(nav.get("nodes", []))
-        links.extend(nav.get("links", []))
+    if render_path:
+        try:
+            render_topdown(builder, raw_nodes, raw_links, Path(render_path))
+            print(f"[render] wrote {render_path}")
+        except Exception as exc:
+            print(f"[render] failed: {exc}")
+
+    nodes = [_node_to_dict(node) for node in raw_nodes]
+    links = [_link_to_dict(link) for link in raw_links]
+
+    if include_existing and existing_graph is not None:
+        nodes.extend(
+            {
+                "id": node.node_id,
+                "pos": _round_tuple(node.pos),
+                "type": node.kind,
+                "tags": list(getattr(node, "tags", ())),
+                "facing": _round_tuple(getattr(node, "facing", (0.0, 1.0, 0.0))),
+                "radius": round(getattr(node, "radius", 1.0), 3),
+            }
+            for node in existing_graph.nodes.values()
+        )
+        links.extend(
+            {
+                "from": getattr(link, "source", getattr(link, "from", "")),
+                "to": getattr(link, "target", getattr(link, "to", "")),
+                "weight": round(float(getattr(link, "weight", 1.0) or 1.0), 3),
+            }
+            for link in existing_graph.links
+        )
 
     return {"nodes": nodes, "links": links}
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Synthesize nav graph nodes around map obstacles.")
+    parser = argparse.ArgumentParser(description="Generate nav graph from voxel corners.")
     parser.add_argument("map", type=Path, help="Path to a map JSON file")
-    parser.add_argument("--output", type=Path, help="Optional path to write a JSON file with the nav graph")
+    parser.add_argument("--output", type=Path, help="Optional destination JSON file")
     parser.add_argument(
         "--update-map",
         action="store_true",
-        help="Write a full map JSON with the synthesized nav graph embedded (requires --output)",
+        help="Write the map JSON with the synthesized nav graph embedded (requires --output)",
     )
     parser.add_argument(
         "--include-existing",
@@ -419,7 +490,12 @@ def main() -> None:
         "--link-radius",
         type=float,
         default=18.0,
-        help="Maximum distance (m) for auto-generated inter-block links",
+        help="Maximum distance (m) for auto-generated links",
+    )
+    parser.add_argument(
+        "--render",
+        type=Path,
+        help="Optional PNG path for a top-down visualization",
     )
 
     args = parser.parse_args()
@@ -428,6 +504,7 @@ def main() -> None:
         args.map,
         include_existing=args.include_existing,
         link_radius=args.link_radius,
+        render_path=args.render,
     )
 
     if args.output:
