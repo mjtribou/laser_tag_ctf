@@ -131,6 +131,7 @@ class LaserTagServer:
         self.killfeed: List[Dict[str, Any]] = []
         self.messagefeed: List[Dict[str, Any]] = []
         self.nav_graph = None
+        self.bot_debug: Dict[int, Dict[str, Any]] = {}
 
         # ECS world and entity mappings
         self.ecs = ECSWorld()
@@ -541,6 +542,7 @@ class LaserTagServer:
             del self.inputs[pid]
         if pid in self.bot_brains:
             del self.bot_brains[pid]
+        self.bot_debug.pop(pid, None)
         self._remove_character(pid)
         entity = self.pid_to_entity.pop(pid, None)
         if entity is not None:
@@ -1440,6 +1442,7 @@ class LaserTagServer:
             match_over=self.match_over,
             winner=self.winner,
             corpse_angles=corpse_angles,
+            bot_debug=self.bot_debug,
         )
 
         return snapshot
@@ -1537,6 +1540,11 @@ class LaserTagServer:
                     inputs = brain.decide(self.gs.players[pid], self.gs, self.mapdata)
                     brain._last_inputs = inputs
                     self.inputs[pid] = inputs
+                    if hasattr(brain, "debug_payload"):
+                        try:
+                            self.bot_debug[pid] = brain.debug_payload(self.gs.players[pid], tnow)
+                        except Exception:
+                            pass
                 except Exception as e:
                     print(f"[bot_ai] pid={pid} decide() error: {e}")
                     if hasattr(brain, "_last_inputs"):
@@ -1548,6 +1556,11 @@ class LaserTagServer:
                 # Between thinks, reuse the last inputs (holds steering & fire decisions steady)
                 if hasattr(brain, "_last_inputs"):
                     self.inputs[pid] = brain._last_inputs
+                if hasattr(brain, "debug_payload"):
+                    try:
+                        self.bot_debug[pid] = brain.debug_payload(self.gs.players[pid], tnow)
+                    except Exception:
+                        pass
 
 
     async def run(self):

@@ -704,6 +704,19 @@ class GameApp(ShowBase):
         self.last_local_fire = 0.0
         self.ammo_text = OnscreenText(text=str(self.shots_left), pos=(1.25, -0.95), fg=(1,1,1,1), align=TextNode.ARight, scale=0.07, mayChange=True)
         self.scoreboard = Scoreboard(self)
+        self._bot_debug_state: Dict[str, Any] = {}
+        self._bot_debug_enabled = bool(int(os.environ.get("BOT_DEBUG", "0")))
+        self.bot_debug_overlay: Optional[OnscreenText] = OnscreenText(
+            text="",
+            pos=(-1.28, 0.9),
+            fg=(0.9, 0.95, 1, 0.9),
+            align=TextNode.ALeft,
+            scale=0.035,
+            mayChange=True,
+        )
+        if self.bot_debug_overlay is not None:
+            self.bot_debug_overlay.hide()
+        self.accept("f9", self._toggle_bot_debug_overlay)
 
         # key state
         self.keys = set()
@@ -1064,6 +1077,11 @@ class GameApp(ShowBase):
             self.snap_times.pop(0)
 
     def on_state(self, state):
+        bot_debug = state.get("bot_debug") if isinstance(state, dict) else None
+        if isinstance(bot_debug, dict):
+            self._bot_debug_state = bot_debug
+        else:
+            self._bot_debug_state = {}
         # Thread-safe enough; render thread only reads.
         self._insert_snapshot(state)
         self.client.state = state  # still exposed if needed
@@ -1073,6 +1091,53 @@ class GameApp(ShowBase):
         if now - getattr(self, "_last_state_log", 0) > 1.0:
             # print(f"[net] snapshot: t={state.get('time', 0):.2f} players={len(state.get('players', []))}")
             self._last_state_log = now
+
+    def _toggle_bot_debug_overlay(self):
+        if not self.bot_debug_overlay:
+            return
+        self._bot_debug_enabled = not self._bot_debug_enabled
+        if self._bot_debug_enabled and self._bot_debug_state:
+            self.bot_debug_overlay.show()
+        else:
+            self.bot_debug_overlay.hide()
+
+    def _update_bot_debug_overlay(self):
+        if not self.bot_debug_overlay:
+            return
+        if not self._bot_debug_enabled:
+            self.bot_debug_overlay.hide()
+            return
+        state = self._bot_debug_state or {}
+        if not state:
+            self.bot_debug_overlay.setText("Bot Debug: waiting…")
+            self.bot_debug_overlay.show()
+            return
+        lines = ["Bot Debug"]
+        try:
+            keys = sorted(state.keys(), key=lambda k: int(k))
+        except Exception:
+            keys = list(state.keys())
+        for key in keys[:10]:
+            entry = state.get(key, {})
+            pid = int(key) if str(key).isdigit() else key
+            behavior = entry.get("behavior") or entry.get("state") or "?"
+            score = entry.get("score")
+            target = entry.get("target")
+            carrying = entry.get("carrying_flag")
+            line = f"#{pid}: {behavior}"
+            if score is not None:
+                line += f" (s={score})"
+            if carrying:
+                line += " [FLAG]"
+            if target:
+                try:
+                    tx, ty, tz = target
+                    line += f" -> ({tx:.1f},{ty:.1f})"
+                except Exception:
+                    pass
+            lines.append(line)
+        self.bot_debug_overlay.setText("\n".join(lines))
+        self.bot_debug_overlay.show()
 
     # --- Input handling ---------------------------------------------------
 
@@ -1901,6 +1966,8 @@ class GameApp(ShowBase):
                 self._netgraph.setText(f"ping: {ping} ms\nsnaps: {snaps}\nrt: {self.render_time:.2f}")
             except Exception:
                 pass
+
+        self._update_bot_debug_overlay()
 
         if self.chunk_manager is not None:
             try:

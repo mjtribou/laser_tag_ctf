@@ -86,6 +86,9 @@ Tactical navigation metadata can be embedded under an optional `nav` block:
 ```
 Nodes describe reusable tactical anchor points (cover, perch, flank, regroup) with optional tags, facing vectors, and influence radius; links specify directed or bidirectional connections that future bot logic can traverse.
 
+### Bot debug overlay
+Set `BOT_DEBUG=1` when launching the client (e.g. `BOT_DEBUG=1 python client.py`) to enable a live bot decision overlay. Press `F9` in-game to toggle the panel; it shows each bot’s current high-level behaviour, score, and target for quick debugging.
+
 Clients mirror many of these options in `configs/client_settings.json` (video, audio, HUD, cosmetics, discovery preferences).
 
 ## Architecture Notes

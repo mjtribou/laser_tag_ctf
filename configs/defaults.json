@@ -9,8 +9,8 @@
     "respawn_seconds": 1,
     "flag_return_seconds": 10,
     "friendly_fire": false,
-    "bot_fill": false,
-    "bot_per_team_target": 0,
+    "bot_fill": true,
+    "bot_per_team_target": 4,
     "bots_target_players": true
   },
   "gameplay": {

@@ -1,7 +1,7 @@
 # game/bot_ai.py
 import math, random, time
 from dataclasses import dataclass
-from typing import Dict, Tuple, List, Optional, NamedTuple, Iterable
+from typing import Any, Dict, Tuple, List, Optional, NamedTuple, Iterable
 
 from .constants import TEAM_RED, TEAM_BLUE
 from . import nav_grid as ng
@@ -61,6 +61,16 @@ class SimpleBotBrain:
         inputs["walk"] = False
         inputs["crouch"] = random.random() < 0.02
         return inputs
+
+    def debug_payload(self, me, now: float) -> Dict[str, Any]:
+        return {
+            "pid": getattr(me, "pid", None),
+            "team": self.team,
+            "time": now,
+            "behavior": self.state,
+            "target": self.target,
+            "position": (round(me.x, 2), round(me.y, 2), round(me.z, 2)),
+        }
 
 
 # --- Shared nav-cache across all brains (one grid per map/settings) ---
@@ -194,6 +204,7 @@ class AStarBotBrain:
         self._next_plan_t: float = 0.0
         self._last_progress_t: float = 0.0
         self._last_progress_dist: float = float("inf")
+        self.last_decision: Optional[BotDecision] = None
 
     # --- Nav helpers -----------------------------------------------------
     def _ensure_nav(self, mapdata):
@@ -414,6 +425,7 @@ class AStarBotBrain:
         )
 
         decision = self._evaluate_behaviors(ctx)
+        self.last_decision = decision
         if decision.broadcast is not None:
             self.radio.broadcast(self.team, decision.broadcast)
 
@@ -463,3 +475,25 @@ class AStarBotBrain:
             inputs["interact"] = True
 
         return inputs
+
+    def debug_payload(self, me, now: float) -> Dict[str, Any]:
+        payload: Dict[str, Any] = {
+            "pid": me.pid,
+            "team": self.team,
+            "time": now,
+            "position": (round(me.x, 2), round(me.y, 2), round(me.z, 2)),
+            "carrying_flag": getattr(me, "carrying_flag", None),
+            "path_remaining": max(0, len(self._path) - self._path_i) if self._path else 0,
+        }
+        if self.last_decision is not None:
+            payload.update(
+                {
+                    "behavior": self.last_decision.name,
+                    "score": round(self.last_decision.score, 2),
+                    "target": tuple(round(v, 2) for v in self.last_decision.target),
+                }
+            )
+        if self._current_target() is not None:
+            target = self._current_target()
+            payload["current_target"] = (round(target[0], 2), round(target[1], 2))
+        return payload
