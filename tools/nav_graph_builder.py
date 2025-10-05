@@ -111,24 +111,24 @@ class NavBuilder:
 
             if has_n:
                 if free_ne:
-                    self._create_corner_node(x, y, z, sx=1, sy=1)
+                    self._create_wall_node(x, y, z, dx=0, dy=1, corner_tag="corner:NE")
                 if free_nw:
-                    self._create_corner_node(x, y, z, sx=-1, sy=1)
+                    self._create_wall_node(x, y, z, dx=0, dy=1, corner_tag="corner:NW")
             if has_s:
                 if free_se:
-                    self._create_corner_node(x, y, z, sx=1, sy=-1)
+                    self._create_wall_node(x, y, z, dx=0, dy=-1, corner_tag="corner:SE")
                 if free_sw:
-                    self._create_corner_node(x, y, z, sx=-1, sy=-1)
+                    self._create_wall_node(x, y, z, dx=0, dy=-1, corner_tag="corner:SW")
             if has_e:
                 if free_ne:
-                    self._create_corner_node(x, y, z, sx=1, sy=1)
+                    self._create_wall_node(x, y, z, dx=1, dy=0, corner_tag="corner:NE")
                 if free_se:
-                    self._create_corner_node(x, y, z, sx=1, sy=-1)
+                    self._create_wall_node(x, y, z, dx=1, dy=0, corner_tag="corner:SE")
             if has_w:
                 if free_nw:
-                    self._create_corner_node(x, y, z, sx=-1, sy=1)
+                    self._create_wall_node(x, y, z, dx=-1, dy=0, corner_tag="corner:NW")
                 if free_sw:
-                    self._create_corner_node(x, y, z, sx=-1, sy=-1)
+                    self._create_wall_node(x, y, z, dx=-1, dy=0, corner_tag="corner:SW")
 
     def _has_wall(self, x: int, y: int, z: int) -> bool:
         return any(self._is_solid(x, y, z + dz) for dz in (0, 1, 2))
@@ -136,17 +136,18 @@ class NavBuilder:
     def _corner_open(self, x: int, y: int, z: int) -> bool:
         return all(not self._is_solid(x, y, z + dz) for dz in (0, 1))
 
-    def _create_corner_node(self, x: int, y: int, z: int, sx: int, sy: int) -> None:
-        key = (x, y, z, (sx > 0) << 1 | (sy > 0))
+    def _create_wall_node(self, x: int, y: int, z: int, dx: int, dy: int, corner_tag: Optional[str]) -> None:
+        dir_idx = (dx + 1) * 3 + (dy + 1)
+        key = (x, y, z, dir_idx, corner_tag)
         if key in self._dedupe_keys:
             return
 
-        world_pos = self._corner_world_position(x, y, z, sx, sy)
+        world_pos = self._wall_world_position(x, y, z, dx, dy)
         if self._point_in_wall(world_pos):
             return
 
-        facing = self._compute_facing_vector(sx, sy)
-        tags = self._corner_tags(world_pos[0], sx, sy)
+        facing = self._compute_facing_vector(dx, dy)
+        tags = self._wall_tags(world_pos[0], dx, dy, corner_tag)
 
         node = SynthNode(
             node_id=f"corner_{len(self.nodes)}",
@@ -159,20 +160,24 @@ class NavBuilder:
         self.nodes.append(node)
         self._dedupe_keys.add(key)
 
-    def _corner_world_position(self, x: int, y: int, z: int, sx: int, sy: int) -> Tuple[float, float, float]:
-        if sx > 0:
+    def _wall_world_position(self, x: int, y: int, z: int, dx: int, dy: int) -> Tuple[float, float, float]:
+        if dx > 0:
             plane_x = (self.origin[0] + x + 1) * self.cube
             pos_x = plane_x - self.corner_offset
-        else:
+        elif dx < 0:
             plane_x = (self.origin[0] + x) * self.cube
             pos_x = plane_x + self.corner_offset
+        else:
+            pos_x = (self.origin[0] + x + 0.5) * self.cube
 
-        if sy > 0:
+        if dy > 0:
             plane_y = (self.origin[1] + y + 1) * self.cube
             pos_y = plane_y - self.corner_offset
-        else:
+        elif dy < 0:
             plane_y = (self.origin[1] + y) * self.cube
             pos_y = plane_y + self.corner_offset
+        else:
+            pos_y = (self.origin[1] + y + 0.5) * self.cube
 
         floor_plane = (self.origin[2] + z) * self.cube
         pos_z = floor_plane + self.height_offset
@@ -189,26 +194,26 @@ class NavBuilder:
             return True
         return False
 
-    def _compute_facing_vector(self, sx: int, sy: int) -> Tuple[float, float, float]:
-        vx = -float(sx)
-        vy = -float(sy)
+    def _compute_facing_vector(self, dx: int, dy: int) -> Tuple[float, float, float]:
+        vx = float(dx)
+        vy = float(dy)
         length = math.hypot(vx, vy)
         if length < 1e-6:
             return (0.0, 1.0, 0.0)
         return (vx / length, vy / length, 0.0)
 
-    def _corner_tags(self, world_x: float, sx: int, sy: int) -> Tuple[str, ...]:
+    def _wall_tags(self, world_x: float, dx: int, dy: int, corner_tag: Optional[str]) -> Tuple[str, ...]:
         tags = {"cover", "peek", self._team_tag(world_x)}
-        tags.add("side:east" if sx > 0 else "side:west")
-        tags.add("side:north" if sy > 0 else "side:south")
-        if sx > 0 and sy > 0:
-            tags.add("corner:NE")
-        elif sx > 0 and sy < 0:
-            tags.add("corner:SE")
-        elif sx < 0 and sy > 0:
-            tags.add("corner:NW")
-        else:
-            tags.add("corner:SW")
+        if dx > 0:
+            tags.add("side:east")
+        elif dx < 0:
+            tags.add("side:west")
+        if dy > 0:
+            tags.add("side:north")
+        elif dy < 0:
+            tags.add("side:south")
+        if corner_tag:
+            tags.add(corner_tag)
         return tuple(sorted(tags))
 
     def _team_tag(self, world_x: float) -> str:

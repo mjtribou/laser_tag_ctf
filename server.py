@@ -229,7 +229,7 @@ class LaserTagServer:
         node.setIntoCollideMask(MASK_SOLID)
         np = self._root.attachNewNode(node)
         self.world.attachRigidBody(node)
-        np.setPythonTag("kind", "chunk")
+        np.setPythonTag("kind", "static")
         np.setPythonTag("chunk_key", key)
         np.setPythonTag("tag", tag)
         self._static_nodes.append(np)

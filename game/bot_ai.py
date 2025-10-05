@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple, List, Optional, NamedTuple, Iterable, Sequence
 
-from .constants import TEAM_RED, TEAM_BLUE
+from .constants import TEAM_RED, TEAM_BLUE, PLAYER_HEIGHT
 from . import nav_grid as ng
 from world.map_adapter import TacticalGraph, TacticalNode, TacticalLink
 
@@ -371,6 +371,10 @@ class AStarBotBrain:
         self._last_progress_dist: float = float("inf")
         self.last_decision: Optional[BotDecision] = None
 
+        # Cached geometry for cheap line-of-sight checks
+        self._los_cache_key: Optional[Tuple[int, int, float]] = None
+        self._los_blocks: List[Tuple[float, float, float, float, float, float]] = []
+
     # --- Nav graph helpers -------------------------------------------
 
     def _ensure_nav_index(self, mapdata, nav_graph: Optional[TacticalGraph] = None) -> None:
@@ -413,6 +417,121 @@ class AStarBotBrain:
             fields = {"red": red, "blue": blue}
             _FIELD_CACHE[fkey] = fields
         self._fields = fields
+
+    def _ensure_los_blocks(self, mapdata) -> None:
+        if mapdata is None:
+            self._los_blocks = []
+            self._los_cache_key = None
+            return
+
+        blocks = getattr(mapdata, "blocks", ()) or ()
+        key = (id(mapdata), len(blocks), float(getattr(mapdata, "cube_size", 1.0) or 1.0))
+        if self._los_cache_key == key:
+            return
+
+        los_blocks: List[Tuple[float, float, float, float, float, float]] = []
+        EPS = 1e-4
+        for block in blocks:
+            try:
+                cx, cy, cz = block.pos
+                sx, sy, sz = block.size
+            except Exception:
+                continue
+
+            hx = max(0.0, 0.5 * float(sx)) + EPS
+            hy = max(0.0, 0.5 * float(sy)) + EPS
+            hz = max(0.0, 0.5 * float(sz)) + EPS
+            los_blocks.append(
+                (
+                    float(cx) - hx,
+                    float(cx) + hx,
+                    float(cy) - hy,
+                    float(cy) + hy,
+                    float(cz) - hz,
+                    float(cz) + hz,
+                )
+            )
+
+        self._los_blocks = los_blocks
+        self._los_cache_key = key
+
+    @staticmethod
+    def _segment_hits_box(
+        start: Tuple[float, float, float],
+        end: Tuple[float, float, float],
+        bounds: Tuple[float, float, float, float, float, float],
+        *,
+        eps: float = 1e-4,
+    ) -> Optional[float]:
+        sx, sy, sz = start
+        ex, ey, ez = end
+        dx, dy, dz = ex - sx, ey - sy, ez - sz
+
+        tmin, tmax = 0.0, 1.0
+        for S, D, mn, mx in ((sx, dx, bounds[0], bounds[1]), (sy, dy, bounds[2], bounds[3]), (sz, dz, bounds[4], bounds[5])):
+            if abs(D) < 1e-8:
+                if S < mn - eps or S > mx + eps:
+                    return None
+                continue
+            invD = 1.0 / D
+            t1 = (mn - S) * invD
+            t2 = (mx - S) * invD
+            if t1 > t2:
+                t1, t2 = t2, t1
+            if t1 > tmin:
+                tmin = t1
+            if t2 < tmax:
+                tmax = t2
+            if tmax < tmin:
+                return None
+
+        if tmax < 0.0 or tmin > 1.0:
+            return None
+
+        hit_t = tmin if tmin >= 0.0 else tmax
+        if hit_t is None:
+            return None
+        if hit_t <= eps or hit_t >= 1.0 - eps:
+            return None
+        return hit_t
+
+    def _has_line_of_sight(self, me, target, mapdata) -> bool:
+        self._ensure_los_blocks(mapdata)
+        if not self._los_blocks:
+            return True
+
+        eye_offset = 0.30 * PLAYER_HEIGHT
+        sx = float(getattr(me, "x", 0.0))
+        sy = float(getattr(me, "y", 0.0))
+        sz = float(getattr(me, "z", 0.0)) + eye_offset
+
+        ex = float(getattr(target, "x", 0.0))
+        ey = float(getattr(target, "y", 0.0))
+        ez = float(getattr(target, "z", 0.0)) + eye_offset
+
+        start = (sx, sy, sz)
+        end = (ex, ey, ez)
+        EPS = 1e-4
+
+        for bounds in self._los_blocks:
+            minx, maxx, miny, maxy, minz, maxz = bounds
+            # Skip the block if shooter or target is inside it; these represent floors/ramps.
+            if (
+                (minx - EPS <= sx <= maxx + EPS)
+                and (miny - EPS <= sy <= maxy + EPS)
+                and (minz - EPS <= sz <= maxz + EPS)
+            ):
+                continue
+            if (
+                (minx - EPS <= ex <= maxx + EPS)
+                and (miny - EPS <= ey <= maxy + EPS)
+                and (minz - EPS <= ez <= maxz + EPS)
+            ):
+                continue
+
+            if self._segment_hits_box(start, end, bounds, eps=EPS) is not None:
+                return False
+        return True
 
     def _need_replan(self, goal_xy: Tuple[float, float]) -> bool:
         if not self._path or self._last_goal_xy is None:
@@ -550,7 +669,14 @@ class AStarBotBrain:
                 return True
         return False
 
-    def _nearest_enemy(self, me, gs, max_range: float = 45.0, require_line: bool = False):
+    def _nearest_enemy(
+        self,
+        me,
+        gs,
+        max_range: float = 45.0,
+        require_line: bool = False,
+        mapdata=None,
+    ):
         best = None
         best_d2 = max_range * max_range
         for enemy in gs.players.values():
@@ -564,6 +690,8 @@ class AStarBotBrain:
             dx = enemy.x - me.x
             dy = enemy.y - me.y
             d2 = dx * dx + dy * dy
+            if require_line and not self._has_line_of_sight(me, enemy, mapdata):
+                continue
             if d2 < best_d2:
                 best_d2 = d2
                 best = enemy
@@ -645,7 +773,7 @@ class AStarBotBrain:
         return BotDecision("defend_base", score, target, crouch=True, focus=(threat.x, threat.y, threat.z))
 
     def _beh_hunt_enemy(self, ctx: BotContext) -> Optional[BotDecision]:
-        enemy = self._nearest_enemy(ctx.me, ctx.gs, max_range=60.0)
+        enemy = self._nearest_enemy(ctx.me, ctx.gs, max_range=60.0, mapdata=ctx.mapdata)
         if enemy is None:
             return None
         score = 35.0
@@ -756,10 +884,11 @@ class AStarBotBrain:
         inputs["mx"] = 0.0
         inputs["mz"] = 1.0
 
-        enemy = self._nearest_enemy(me, gs)
+        enemy = self._nearest_enemy(me, gs, mapdata=mapdata)
         if enemy is not None:
             dist = math.hypot(enemy.x - me.x, enemy.y - me.y)
-            inputs["fire"] = dist <= 40.0
+            has_line = self._has_line_of_sight(me, enemy, mapdata)
+            inputs["fire"] = dist <= 40.0 and has_line
             if inputs["fire"]:
                 desired_yaw = math.atan2(-(enemy.x - me.x), enemy.y - me.y)
                 me.yaw_rad = _turn_toward(me.yaw_rad, desired_yaw, rate_rad_per_s=math.radians(260), dt=0.016)
