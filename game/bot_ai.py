@@ -146,6 +146,22 @@ class NavGraphIndex:
         ids = self.node_ids_with_tags(required, area)
         return [self.nodes[i] for i in ids]
 
+    def nodes_with_any_tags(self, candidates: Sequence[str], area: Optional[str] = None) -> List[TacticalNode]:
+        tags = [tag for tag in (candidates or []) if tag]
+        if not tags:
+            return self.nodes_in_area(area) if area else list(self.nodes.values())
+        result_ids: set[str] = set()
+        for tag in tags:
+            for node_id in self.by_tag.get(tag, ()):  # union of tag pools
+                result_ids.add(node_id)
+        if area:
+            area_ids = set(self.by_area.get(area, ()))
+            if result_ids:
+                result_ids &= area_ids
+            else:
+                result_ids = area_ids
+        return [self.nodes[i] for i in result_ids]
+
     def closest(self, position: Tuple[float, float, float], *, required: Sequence[str] = (), area: Optional[str] = None) -> Optional[TacticalNode]:
         ids = self.node_ids_with_tags(required, area)
         if not ids:
@@ -537,8 +553,8 @@ class AStarBotBrain:
                 threat_dist = dist
         if threat is None:
             return None
-        node = self._closest_node(ctx, (bx, by), required_tags=("defend",))
-        target = node.pos if node else ctx.base_pos
+        cover = self._select_cover_for_threat(ctx, threat)
+        target = cover.pos if cover else ctx.base_pos
         score = 70.0 - min(threat_dist, 25.0)
         return BotDecision("defend_base", score, target, crouch=True, focus=(threat.x, threat.y, threat.z))
 
@@ -559,6 +575,47 @@ class AStarBotBrain:
         ref_pos = (ref_xy[0], ref_xy[1], 0.0)
         candidate = ctx.nearest_node(ref_pos, required=required_tags)
         return candidate
+
+    def _select_cover_for_threat(self, ctx: BotContext, threat) -> Optional[TacticalNode]:
+        index = ctx.nav_index
+        if index is None:
+            candidates = ctx.nodes_with_tags(("cover", "peek"))
+        else:
+            area_tag = None
+            if threat.x <= ctx.base_pos[0] - 5.0:
+                area_tag = "team:blue_area" if ctx.team == TEAM_RED else "team:red_area"
+            elif threat.x >= ctx.base_pos[0] + 5.0:
+                area_tag = "team:red_area" if ctx.team == TEAM_RED else "team:blue_area"
+            candidates = index.nodes_with_any_tags(["cover", "peek"], area=area_tag)
+        if not candidates:
+            return None
+
+        px, py, pz = ctx.me.x, ctx.me.y, ctx.me.z
+        tx, ty, tz = threat.x, threat.y, threat.z
+        threat_vec = (tx - px, ty - py, tz - pz)
+        threat_dist = math.sqrt(threat_vec[0] ** 2 + threat_vec[1] ** 2 + threat_vec[2] ** 2) or 1.0
+        threat_dir = (threat_vec[0] / threat_dist, threat_vec[1] / threat_dist, threat_vec[2] / threat_dist)
+
+        best = None
+        best_score = -float("inf")
+        for node in candidates:
+            nx, ny, nz = node.pos
+            fx, fy, fz = getattr(node, "facing", (0.0, 1.0, 0.0))
+            facing_len = math.sqrt(fx * fx + fy * fy + fz * fz) or 1.0
+            facing_dir = (fx / facing_len, fy / facing_len, fz / facing_len)
+
+            to_threat = (tx - nx, ty - ny, tz - nz)
+            to_threat_len = math.sqrt(to_threat[0] ** 2 + to_threat[1] ** 2 + to_threat[2] ** 2) or 1.0
+            to_threat_dir = (to_threat[0] / to_threat_len, to_threat[1] / to_threat_len, to_threat[2] / to_threat_len)
+
+            cover_score = -(nx - tx) * threat_dir[0] - (ny - ty) * threat_dir[1]
+            facing_score = facing_dir[0] * to_threat_dir[0] + facing_dir[1] * to_threat_dir[1] + facing_dir[2] * to_threat_dir[2]
+            distance_penalty = to_threat_len
+            total = 2.5 * facing_score - 0.4 * distance_penalty + 0.6 * cover_score
+            if total > best_score:
+                best_score = total
+                best = node
+        return best
 
     # --- Main decision ---------------------------------------------------
 
@@ -648,3 +705,19 @@ class AStarBotBrain:
             target = self._current_target()
             payload["current_target"] = (round(target[0], 2), round(target[1], 2))
         return payload
+    def nodes_with_any_tags(self, tags: Iterable[str], area: Optional[str] = None) -> List[TacticalNode]:
+        index = self.nav_index
+        if index is not None:
+            return index.nodes_with_any_tags(tags, area)
+        tags = [tag for tag in tags if tag]
+        nodes = list(self.nav_nodes())
+        out: List[TacticalNode] = []
+        for node in nodes:
+            node_tags = set(getattr(node, "tags", ()))
+            if tags:
+                if any(tag in node_tags for tag in tags):
+                    if not area or area in node_tags:
+                        out.append(node)
+            elif not area or area in node_tags:
+                out.append(node)
+        return out
