@@ -67,7 +67,7 @@ from panda3d.core import GeomNode, GeomVertexReader, GeomVertexWriter, GeomTrian
 from panda3d.core import loadPrcFileData
 
 from common.net import send_json, read_json, lan_discovery_broadcast
-from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL
+from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL, PLAYER_HEIGHT
 from scoreboard import Scoreboard
 from game.map_gen import load_from_file as load_map_from_file
 from engine.config import get as engine_config_get
@@ -865,6 +865,13 @@ class GameApp(ShowBase):
         )
         if self.bot_debug_overlay is not None:
             self.bot_debug_overlay.hide()
+        self._bot_debug_root = self.render.attachNewNode("botDebugRoot")
+        self._bot_debug_root.setDepthWrite(False)
+        self._bot_debug_root.setTransparency(TransparencyAttrib.M_alpha)
+        self._bot_debug_root.setLightOff(1)
+        self._bot_debug_root.hide()
+        self._bot_debug_labels: Dict[int, Tuple[NodePath, TextNode]] = {}
+        self._bot_debug_paths: Dict[int, NodePath] = {}
         self.accept("f9", self._toggle_bot_debug_overlay)
 
         # key state
@@ -1261,13 +1268,23 @@ class GameApp(ShowBase):
             return
         if not self._bot_debug_enabled:
             self.bot_debug_overlay.hide()
+            self._clear_bot_debug_markers()
             return
         state = self._bot_debug_state or {}
         if not state:
             self.bot_debug_overlay.setText("Bot Debug: waiting…")
             self.bot_debug_overlay.show()
+            self._clear_bot_debug_markers()
             return
         lines = ["Bot Debug"]
+        players_by_pid: Dict[int, Dict[str, Any]] = {}
+        if self.client and isinstance(getattr(self.client, "state", None), dict):
+            for pdata in self.client.state.get("players", []) or []:
+                try:
+                    pid_val = int(pdata.get("pid"))
+                except Exception:
+                    continue
+                players_by_pid[pid_val] = pdata
         try:
             keys = sorted(state.keys(), key=lambda k: int(k))
         except Exception:
@@ -1279,7 +1296,15 @@ class GameApp(ShowBase):
             score = entry.get("score")
             target = entry.get("target")
             carrying = entry.get("carrying_flag")
-            line = f"#{pid}: {behavior}"
+            player_info = players_by_pid.get(pid, {})
+            name = player_info.get("name") or entry.get("name") or f"Bot{pid}"
+            team = player_info.get("team", entry.get("team"))
+            name_markup = name
+            if team == TEAM_RED:
+                name_markup = "\x01tr\x01" + name + "\x02"
+            elif team == TEAM_BLUE:
+                name_markup = "\x01tb\x01" + name + "\x02"
+            line = f"{name_markup} #{pid}: {behavior}"
             if score is not None:
                 line += f" (s={score})"
             if carrying:
@@ -1293,6 +1318,162 @@ class GameApp(ShowBase):
             lines.append(line)
         self.bot_debug_overlay.setText("\n".join(lines))
         self.bot_debug_overlay.show()
+        self._update_bot_debug_markers(state, players_by_pid)
+
+    def _clear_bot_debug_markers(self) -> None:
+        if not hasattr(self, "_bot_debug_root"):
+            return
+        for node, _ in list(self._bot_debug_labels.values()):
+            if node and not node.isEmpty():
+                node.removeNode()
+        self._bot_debug_labels.clear()
+        for node in list(self._bot_debug_paths.values()):
+            if node and not node.isEmpty():
+                node.removeNode()
+        self._bot_debug_paths.clear()
+        if self._bot_debug_root and not self._bot_debug_root.isEmpty():
+            self._bot_debug_root.hide()
+
+    def _update_bot_debug_markers(
+        self,
+        state: Dict[str, Any],
+        players_by_pid: Dict[int, Dict[str, Any]],
+    ) -> None:
+        if not self._bot_debug_enabled or not state:
+            self._clear_bot_debug_markers()
+            return
+        if not getattr(self, "_bot_debug_root", None) or self._bot_debug_root.isEmpty():
+            return
+
+        colors_cfg = self.cfg.get("colors", {}) if isinstance(self.cfg, dict) else {}
+        col_red = colors_cfg.get("team_red", (1.0, 0.25, 0.25, 1.0))
+        col_blue = colors_cfg.get("team_blue", (0.25, 0.5, 1.0, 1.0))
+        col_default = (0.9, 0.95, 1.0, 1.0)
+
+        active: Set[int] = set()
+
+        def _arrowhead(builder: LineSegs, start: Vec3, end: Vec3) -> None:
+            direction = end - start
+            total = direction.length()
+            if total <= 1e-6:
+                return
+            direction.normalize()
+            arrow_len = min(0.8, total * 0.45)
+            base = end - direction * arrow_len
+            width = arrow_len * 0.5
+            up = Vec3(0.0, 0.0, 1.0)
+            right = direction.cross(up)
+            if right.lengthSquared() <= 1e-6:
+                up = Vec3(0.0, 1.0, 0.0)
+                right = direction.cross(up)
+            if right.lengthSquared() <= 1e-6:
+                return
+            right.normalize()
+            builder.moveTo(end)
+            builder.drawTo(base + right * width)
+            builder.moveTo(end)
+            builder.drawTo(base - right * width)
+
+        for key, entry in state.items():
+            try:
+                pid = int(key)
+            except Exception:
+                continue
+            player_info = players_by_pid.get(pid, {})
+            pos = entry.get("position") or (
+                player_info.get("x", 0.0),
+                player_info.get("y", 0.0),
+                player_info.get("z", 0.0),
+            )
+            try:
+                px, py, pz = float(pos[0]), float(pos[1]), float(pos[2])
+            except Exception:
+                continue
+            team = player_info.get("team", entry.get("team"))
+            if team == TEAM_RED:
+                label_color = col_red
+            elif team == TEAM_BLUE:
+                label_color = col_blue
+            else:
+                label_color = col_default
+
+            name = player_info.get("name") or entry.get("name") or f"Bot{pid}"
+            label_entry = self._bot_debug_labels.get(pid)
+            if not label_entry or label_entry[0].isEmpty():
+                text_node = TextNode(f"bot-label-{pid}")
+                text_node.setAlign(TextNode.ACenter)
+                text_node.setText(name)
+                text_node.setTextColor(*label_color)
+                node = self._bot_debug_root.attachNewNode(text_node)
+                node.setBillboardPointEye()
+                node.setScale(0.45)
+                node.setLightOff(1)
+                self._bot_debug_labels[pid] = (node, text_node)
+            else:
+                node, text_node = label_entry
+                text_node.setText(name)
+                text_node.setTextColor(*label_color)
+
+            node = self._bot_debug_labels[pid][0]
+            node.setPos(px, py, pz + PLAYER_HEIGHT + 0.4)
+
+            # Rebuild path visualization each frame (cheap for short tails)
+            existing_path = self._bot_debug_paths.pop(pid, None)
+            if existing_path and not existing_path.isEmpty():
+                existing_path.removeNode()
+
+            path_nodes = entry.get("path_nodes") or []
+            target = entry.get("target")
+            points: List[Vec3] = [Vec3(px, py, pz)]
+            for waypoint in path_nodes:
+                try:
+                    wx = float(waypoint[0])
+                    wy = float(waypoint[1])
+                except Exception:
+                    continue
+                points.append(Vec3(wx, wy, pz))
+            if target and isinstance(target, (list, tuple)) and len(target) >= 3:
+                try:
+                    tx = float(target[0])
+                    ty = float(target[1])
+                    tz = float(target[2])
+                except Exception:
+                    tx = ty = tz = None
+                if tx is not None:
+                    points.append(Vec3(tx, ty, tz))
+
+            if len(points) > 1:
+                segs = LineSegs()
+                segs.setThickness(2.6)
+                segs.setColor(label_color[0], label_color[1], label_color[2], 0.85)
+                segs.moveTo(points[0])
+                for pt in points[1:]:
+                    segs.drawTo(pt)
+                _arrowhead(segs, points[-2], points[-1])
+                path_np = self._bot_debug_root.attachNewNode(segs.create())
+                path_np.setDepthWrite(False)
+                path_np.setTransparency(TransparencyAttrib.M_alpha)
+                path_np.setLightOff(1)
+                self._bot_debug_paths[pid] = path_np
+
+            active.add(pid)
+
+        # Remove stale markers
+        for pid, (node, _text) in list(self._bot_debug_labels.items()):
+            if pid not in active:
+                if node and not node.isEmpty():
+                    node.removeNode()
+                self._bot_debug_labels.pop(pid, None)
+        for pid, node in list(self._bot_debug_paths.items()):
+            if pid not in active:
+                if node and not node.isEmpty():
+                    node.removeNode()
+                self._bot_debug_paths.pop(pid, None)
+
+        if active:
+            self._bot_debug_root.show()
+        else:
+            self._bot_debug_root.hide()
 
     def _build_nav_debug_overlay(self) -> None:
         if self._nav_debug_root is not None:

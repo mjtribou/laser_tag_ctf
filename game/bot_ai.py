@@ -940,9 +940,15 @@ class AStarBotBrain:
                     "target": tuple(round(v, 2) for v in self.last_decision.target),
                 }
             )
-        if self._current_target() is not None:
-            target = self._current_target()
-            payload["current_target"] = (round(target[0], 2), round(target[1], 2))
+        remaining_path: List[Tuple[float, float]] = []
+        if self._path and self._path_i < len(self._path):
+            tail = self._path[self._path_i : self._path_i + 6]
+            remaining_path = [(round(px, 2), round(py, 2)) for px, py in tail]
+        if remaining_path:
+            payload["path_nodes"] = remaining_path
+        current_target = self._current_target()
+        if current_target is not None:
+            payload["current_target"] = (round(current_target[0], 2), round(current_target[1], 2))
         return payload
     def nodes_with_any_tags(self, tags: Iterable[str], area: Optional[str] = None) -> List[TacticalNode]:
         index = self.nav_index

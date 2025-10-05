@@ -146,3 +146,16 @@ def test_decide_keeps_yaw_on_path_when_enemy_blocked():
     assert abs(inputs["yaw"] - expected_yaw) < abs(inputs["yaw"] - enemy_yaw)
     assert inputs["yaw"] > enemy_yaw + 30.0  # avoid tracking enemy through wall
     assert inputs["mz"] > 0.5  # continue moving toward goal
+
+
+def test_debug_payload_includes_path_nodes():
+    brain = AStarBotBrain(TEAM_RED, base_pos=(0.0, 0.0, 0.0), enemy_base=(10.0, 0.0, 0.0))
+    brain._path = [(float(i), 0.0) for i in range(8)]
+    brain._path_i = 2
+    brain.last_decision = BotDecision("test", 1.0, (10.0, 0.0, 0.0))
+    me = SimpleNamespace(pid=1, team=TEAM_RED, x=0.0, y=0.0, z=0.0, carrying_flag=None)
+
+    payload = brain.debug_payload(me, now=0.0)
+
+    assert "path_nodes" in payload
+    assert payload["path_nodes"] == [(2.0, 0.0), (3.0, 0.0), (4.0, 0.0), (5.0, 0.0), (6.0, 0.0), (7.0, 0.0)]
