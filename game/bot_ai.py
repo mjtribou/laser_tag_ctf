@@ -1,11 +1,12 @@
 # game/bot_ai.py
 import math, random, time
+from collections import defaultdict
 from dataclasses import dataclass
-from typing import Any, Dict, Tuple, List, Optional, NamedTuple, Iterable
+from typing import Any, Dict, Tuple, List, Optional, NamedTuple, Iterable, Sequence
 
 from .constants import TEAM_RED, TEAM_BLUE
 from . import nav_grid as ng
-from world.map_adapter import TacticalGraph, TacticalNode
+from world.map_adapter import TacticalGraph, TacticalNode, TacticalLink
 
 def _wrap_pi(a: float) -> float:
     return ((a + math.pi) % (2 * math.pi)) - math.pi
@@ -78,6 +79,104 @@ _FIELD_CACHE = {}  # key: (nav_key, red_xy, blue_xy) -> {"red": (dist,parent), "
 _NAV_CACHE: Dict[Tuple, ng.NavGrid] = {}
 
 
+@dataclass
+class NavGraphIndex:
+    """Convenience index for querying navigation nodes by tag/area and traversing links."""
+
+    graph: TacticalGraph
+    nodes: Dict[str, TacticalNode]
+    neighbors: Dict[str, List[Tuple[str, float]]]
+    by_tag: Dict[str, List[str]]
+    by_area: Dict[str, List[str]]
+
+    @classmethod
+    def from_graph(cls, graph: TacticalGraph) -> "NavGraphIndex":
+        nodes: Dict[str, TacticalNode] = {}
+        by_tag: Dict[str, List[str]] = defaultdict(list)
+        by_area: Dict[str, List[str]] = defaultdict(list)
+        for node_id, node in graph.nodes.items():
+            nodes[node_id] = node
+            tags = tuple(getattr(node, "tags", ()) or ())
+            for tag in tags:
+                by_tag[tag].append(node_id)
+                if tag.startswith("team:"):
+                    by_area[tag].append(node_id)
+
+        neighbors: Dict[str, List[Tuple[str, float]]] = defaultdict(list)
+        for link in graph.links:
+            weight = float(getattr(link, "weight", 1.0) or 1.0)
+            if weight <= 0.0:
+                weight = 1.0
+            src = getattr(link, "source", getattr(link, "from", None))
+            dst = getattr(link, "target", getattr(link, "to", None))
+            if not src or not dst:
+                continue
+            if src in nodes and dst in nodes:
+                neighbors[src].append((dst, weight))
+                if getattr(link, "bidirectional", True):
+                    neighbors[dst].append((src, weight))
+
+        return cls(graph=graph, nodes=nodes, neighbors=neighbors, by_tag=by_tag, by_area=by_area)
+
+    # --- Queries -----------------------------------------------------
+
+    def node_ids_with_tags(self, required: Sequence[str], area: Optional[str] = None) -> List[str]:
+        required_clean = [tag for tag in (required or []) if tag]
+        pools: List[Sequence[str]] = []
+        if area:
+            pools.append(self.by_area.get(area, ()))
+        for tag in required_clean:
+            pools.append(self.by_tag.get(tag, ()))
+        if not pools:
+            return list(self.nodes.keys())
+        result: Optional[set] = None
+        for pool in pools:
+            if not pool:
+                return []
+            ids = set(pool)
+            if result is None:
+                result = ids
+            else:
+                result &= ids
+            if not result:
+                return []
+        return sorted(result) if result else []
+
+    def nodes_with_tags(self, required: Sequence[str], area: Optional[str] = None) -> List[TacticalNode]:
+        ids = self.node_ids_with_tags(required, area)
+        return [self.nodes[i] for i in ids]
+
+    def closest(self, position: Tuple[float, float, float], *, required: Sequence[str] = (), area: Optional[str] = None) -> Optional[TacticalNode]:
+        ids = self.node_ids_with_tags(required, area)
+        if not ids:
+            return None
+        px, py, pz = position
+        best_id = None
+        best_dist = float("inf")
+        for node_id in ids:
+            node = self.nodes[node_id]
+            nx, ny, nz = node.pos
+            dist = math.sqrt((px - nx) ** 2 + (py - ny) ** 2 + (pz - nz) ** 2)
+            if dist < best_dist:
+                best_dist = dist
+                best_id = node_id
+        return self.nodes.get(best_id) if best_id else None
+
+    def nodes_in_area(self, area_tag: str) -> List[TacticalNode]:
+        if not area_tag:
+            return list(self.nodes.values())
+        ids = self.by_area.get(area_tag, [])
+        return [self.nodes[i] for i in ids]
+
+    def neighbors_of(self, node_id: str) -> List[Tuple[TacticalNode, float]]:
+        out = []
+        for neighbor_id, weight in self.neighbors.get(node_id, () ):
+            node = self.nodes.get(neighbor_id)
+            if node is not None:
+                out.append((node, weight))
+        return out
+
+
 class BotIntent(NamedTuple):
     kind: str
     origin_pid: int
@@ -124,22 +223,66 @@ class BotContext:
     def enemy_base(self) -> Tuple[float, float, float]:
         return self.brain.enemy_base
 
-    def nav_nodes(self) -> Iterable[TacticalNode]:
-        if self.nav_graph is None:
-            nodes = getattr(self.mapdata, "nav_nodes", [])
-            return nodes
-        return self.nav_graph.nodes.values()
+    @property
+    def nav_index(self) -> Optional[NavGraphIndex]:
+        self.brain._ensure_nav_index(self.mapdata, self.nav_graph)
+        return self.brain.nav_index
 
-    def nodes_with_tags(self, required: Iterable[str]) -> List[TacticalNode]:
+    def nav_nodes(self) -> Iterable[TacticalNode]:
+        index = self.nav_index
+        if index is not None:
+            return index.nodes.values()
+        nodes = getattr(self.mapdata, "nav_nodes", None)
+        return nodes if nodes is not None else []
+
+    def nodes_with_tags(self, required: Iterable[str], area: Optional[str] = None) -> List[TacticalNode]:
+        index = self.nav_index
+        if index is not None:
+            return index.nodes_with_tags(required, area)
         tags = set(required)
         if not tags:
-            return list(self.nav_nodes())
-        out = []
+            nodes = list(self.nav_nodes())
+            if area:
+                return [node for node in nodes if area in getattr(node, "tags", ())]
+            return nodes
+        out: List[TacticalNode] = []
         for node in self.nav_nodes():
             node_tags = set(getattr(node, "tags", ()))
-            if tags.issubset(node_tags):
+            if tags.issubset(node_tags) and (not area or area in node_tags):
                 out.append(node)
         return out
+
+    def nodes_in_area(self, area_tag: str) -> List[TacticalNode]:
+        index = self.nav_index
+        if index is not None:
+            return index.nodes_in_area(area_tag)
+        if not area_tag:
+            return list(self.nav_nodes())
+        out: List[TacticalNode] = []
+        for node in self.nav_nodes():
+            if area_tag in getattr(node, "tags", ()):  # fall back to manual filter
+                out.append(node)
+        return out
+
+    def nearest_node(self, position: Tuple[float, float, float], *, required: Iterable[str] = (), area: Optional[str] = None) -> Optional[TacticalNode]:
+        index = self.nav_index
+        if index is not None:
+            return index.closest(position, required=list(required), area=area)
+        candidates = self.nodes_with_tags(required)
+        if area:
+            candidates = [node for node in candidates if area in getattr(node, "tags", ())]
+        if not candidates:
+            return None
+        px, py, pz = position
+        best = None
+        best_dist = float("inf")
+        for node in candidates:
+            nx, ny, nz = node.pos
+            dist = math.sqrt((px - nx) ** 2 + (py - ny) ** 2 + (pz - nz) ** 2)
+            if dist < best_dist:
+                best_dist = dist
+                best = node
+        return best
 
     def teammates(self) -> Iterable[any]:
         for pid, player in self.gs.players.items():
@@ -194,6 +337,9 @@ class AStarBotBrain:
         self.target_players = bool(target_players)
         self.nav_graph = nav_graph
         self.radio = radio
+        self.nav_index: Optional[NavGraphIndex] = None
+        if nav_graph and getattr(nav_graph, "nodes", None):
+            self.nav_index = NavGraphIndex.from_graph(nav_graph)
 
         # Navigation state
         self._nav: Optional[ng.NavGrid] = None
@@ -205,6 +351,21 @@ class AStarBotBrain:
         self._last_progress_t: float = 0.0
         self._last_progress_dist: float = float("inf")
         self.last_decision: Optional[BotDecision] = None
+
+    # --- Nav graph helpers -------------------------------------------
+
+    def _ensure_nav_index(self, mapdata, nav_graph: Optional[TacticalGraph] = None) -> None:
+        if self.nav_index is not None:
+            return
+        graph = nav_graph or self.nav_graph
+        if graph is None or not getattr(graph, "nodes", None):
+            nodes = list(getattr(mapdata, "nav_nodes", []) or [])
+            links = list(getattr(mapdata, "nav_links", []) or [])
+            if nodes and links:
+                graph = TacticalGraph(nodes={node.node_id: node for node in nodes}, links=tuple(links))
+        if graph and getattr(graph, "nodes", None):
+            self.nav_graph = graph
+            self.nav_index = NavGraphIndex.from_graph(graph)
 
     # --- Nav helpers -----------------------------------------------------
     def _ensure_nav(self, mapdata):
@@ -395,19 +556,9 @@ class AStarBotBrain:
         return BotDecision("attack_enemy_base", 20.0, target)
 
     def _closest_node(self, ctx: BotContext, ref_xy: Tuple[float, float], required_tags: Tuple[str, ...]) -> Optional[TacticalNode]:
-        nodes = ctx.nodes_with_tags(required_tags)
-        if not nodes:
-            return None
-        best = None
-        best_dist = float("inf")
-        for node in nodes:
-            dx = node.pos[0] - ref_xy[0]
-            dy = node.pos[1] - ref_xy[1]
-            dist = dx * dx + dy * dy
-            if dist < best_dist:
-                best = node
-                best_dist = dist
-        return best
+        ref_pos = (ref_xy[0], ref_xy[1], 0.0)
+        candidate = ctx.nearest_node(ref_pos, required=required_tags)
+        return candidate
 
     # --- Main decision ---------------------------------------------------
 
