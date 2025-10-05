@@ -49,7 +49,7 @@
     "character_collider": "capsule"
   },
   "map": {
-    "file": "configs/maps/csg_showcase.json"
+    "file": "configs/maps/ai_test.json"
   },
   "colors": {
     "team_red": [

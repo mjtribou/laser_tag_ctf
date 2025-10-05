@@ -72,7 +72,7 @@ from scoreboard import Scoreboard
 from game.map_gen import load_from_file as load_map_from_file
 from engine.config import get as engine_config_get
 from tools import perf_dump
-from world.map_adapter import load_map_to_voxels
+from world.map_adapter import load_map_to_voxels, TacticalGraph
 from world.chunks import ChunkIndex, ChunkKey
 from world.chunk_manager import WorldChunkManager
 from render.chunk_mesher import ChunkMesher
@@ -694,6 +694,9 @@ class GameApp(ShowBase):
         self._collider_debug_modes: Tuple[str, ...] = ("off", "wire", "solid")
         self._collider_debug_index: int = 0
         self._collider_debug_toggle_key: Optional[str] = None
+        self._nav_graph_data: Optional[TacticalGraph] = None
+        self._nav_debug_root: Optional[NodePath] = None
+        self._nav_debug_enabled = False
         self._build_chunked_world(map_file)
 
 
@@ -870,6 +873,7 @@ class GameApp(ShowBase):
             self.accept(key, self.on_key, [key, True])
             self.accept(key + "-up", self.on_key, [key, False])
         self.accept("escape", sys.exit)
+        self.accept("f8", self._toggle_nav_debug_overlay)
 
         # mouse update
         self.taskMgr.add(self.update_task, "update")
@@ -885,6 +889,7 @@ class GameApp(ShowBase):
         self.nav_graph = None
         self.role = SpectatorRole(self) if self.spectator else PlayerRole(self)
         self.role.setup()
+        self._build_nav_debug_overlay()
 
 
     def center_mouse(self):
@@ -900,6 +905,7 @@ class GameApp(ShowBase):
             raise RuntimeError(f"[perf] chunk build failed to load voxels: {exc}") from exc
 
         self.nav_graph = nav_graph
+        self._nav_graph_data = nav_graph
 
         chunk_size = self._chunk_size_from_config()
         cube_size = float(getattr(self.mapdata, "cube_size", 1.0) or 1.0)
@@ -1287,6 +1293,191 @@ class GameApp(ShowBase):
             lines.append(line)
         self.bot_debug_overlay.setText("\n".join(lines))
         self.bot_debug_overlay.show()
+
+    def _build_nav_debug_overlay(self) -> None:
+        if self._nav_debug_root is not None:
+            try:
+                self._nav_debug_root.removeNode()
+            except Exception:
+                pass
+            self._nav_debug_root = None
+
+        graph = self._nav_graph_data
+        if not graph or not getattr(graph, "nodes", None):
+            return
+
+        root = self.render.attachNewNode("nav_graph_debug")
+        root.hide()
+        root.setTransparency(TransparencyAttrib.M_alpha)
+        root.setDepthWrite(False)
+        root.setLightOff(1)
+        root.setTwoSided(True)
+        root.setBin("transparent", 28)
+        self._nav_debug_root = root
+        self._nav_debug_enabled = False
+
+        node_positions: Dict[str, Vec3] = {}
+        kind_colors = {
+            "cover": LColor(0.25, 0.85, 0.45, 0.55),
+            "sniper": LColor(0.9, 0.8, 0.25, 0.55),
+            "flank": LColor(0.2, 0.7, 0.95, 0.55),
+            "objective": LColor(1.0, 0.45, 0.2, 0.55),
+        }
+        default_color = LColor(0.5, 0.6, 1.0, 0.55)
+
+        for node_id, node in graph.nodes.items():
+            try:
+                pos = Vec3(float(node.pos[0]), float(node.pos[1]), float(node.pos[2]))
+            except Exception:
+                continue
+            node_positions[node_id] = pos
+            radius = float(getattr(node, "radius", 1.0) or 1.0)
+            marker = self.loader.loadModel("models/box")
+            marker.setScale(max(0.2, 0.4 * radius))
+            marker.setPos(pos)
+            color = kind_colors.get(getattr(node, "kind", "") or "", default_color)
+            marker.setColor(color)
+            marker.setTransparency(TransparencyAttrib.M_alpha)
+            marker.setLightOff(1)
+            marker.reparentTo(root)
+
+            label_lines = [str(node_id)]
+            kind = getattr(node, "kind", "") or "generic"
+            label_lines.append(f"type: {kind}")
+            tags = getattr(node, "tags", ()) or ()
+            if tags:
+                label_lines.append("tags: " + ",".join(str(t) for t in tags))
+            try:
+                label_lines.append(f"r={float(node.radius):.1f}")
+            except Exception:
+                pass
+            text = TextNode(f"nav-label-{node_id}")
+            text.setAlign(TextNode.ACenter)
+            text.setText("\n".join(label_lines))
+            text.setTextColor(1.0, 1.0, 0.9, 1.0)
+            text_np = root.attachNewNode(text)
+            text_np.setScale(0.4)
+            text_np.setPos(pos + Vec3(0.0, 0.0, radius + 0.6))
+            text_np.setEffect(BillboardEffect.makePointEye())
+            text_np.setLightOff(1)
+
+            facing = getattr(node, "facing", None)
+            if facing:
+                try:
+                    fv = Vec3(float(facing[0]), float(facing[1]), float(facing[2]))
+                except Exception:
+                    fv = Vec3(0, 0, 0)
+                if fv.lengthSquared() > 1e-6:
+                    fv.normalize()
+                    reach = max(1.0, radius * 1.5)
+                    arrow = LineSegs()
+                    arrow.setThickness(2.0)
+                    arrow.setColor(color[0], color[1], color[2], 0.9)
+                    arrow.moveTo(pos)
+                    arrow.drawTo(pos + fv * reach)
+                    arrow_np = root.attachNewNode(arrow.create())
+                    arrow_np.setDepthWrite(False)
+                    arrow_np.setTransparency(TransparencyAttrib.M_alpha)
+                    arrow_np.setLightOff(1)
+
+        weights = [max(0.0, float(getattr(link, "weight", 1.0) or 0.0)) for link in graph.links]
+        if not weights:
+            weights = [1.0]
+        min_w = min(weights)
+        max_w = max(weights)
+
+        def _weight_norm(value: float) -> float:
+            span = max_w - min_w
+            if span <= 1e-6:
+                return 0.5
+            return max(0.0, min(1.0, (value - min_w) / span))
+
+        def _add_arrowhead(builder: LineSegs, start: Vec3, end: Vec3, length_scale: float) -> None:
+            direction = end - start
+            total = direction.length()
+            if total <= 1e-5:
+                return
+            direction.normalize()
+            arrow_len = min(1.2, total * length_scale)
+            arrow_width = arrow_len * 0.35
+            base = end - direction * arrow_len
+            up = Vec3(0.0, 0.0, 1.0)
+            right = direction.cross(up)
+            if right.lengthSquared() <= 1e-6:
+                up = Vec3(0.0, 1.0, 0.0)
+                right = direction.cross(up)
+            if right.lengthSquared() <= 1e-6:
+                up = Vec3(1.0, 0.0, 0.0)
+                right = direction.cross(up)
+            if right.lengthSquared() <= 1e-6:
+                return
+            right.normalize()
+            builder.moveTo(end)
+            builder.drawTo(base + right * arrow_width)
+            builder.moveTo(end)
+            builder.drawTo(base - right * arrow_width)
+
+        for idx, link in enumerate(graph.links):
+            source = node_positions.get(getattr(link, "source", ""))
+            target = node_positions.get(getattr(link, "target", ""))
+            if source is None or target is None:
+                continue
+            weight = float(getattr(link, "weight", 1.0) or 0.0)
+            norm = _weight_norm(max(0.0, weight))
+            color = LColor(
+                0.25 + 0.75 * norm,
+                0.85 - 0.55 * norm,
+                1.0 - 0.7 * norm,
+                0.9,
+            )
+            thickness = 1.5 + 3.5 * norm
+            segs = LineSegs()
+            segs.setThickness(thickness)
+            segs.setColor(color)
+            segs.moveTo(source)
+            segs.drawTo(target)
+            if getattr(link, "bidirectional", True):
+                _add_arrowhead(segs, target, source, 0.18)
+                _add_arrowhead(segs, source, target, 0.18)
+            else:
+                _add_arrowhead(segs, source, target, 0.25)
+            link_np = root.attachNewNode(segs.create())
+            link_np.setDepthWrite(False)
+            link_np.setTransparency(TransparencyAttrib.M_alpha)
+            link_np.setLightOff(1)
+
+            mid = (source + target) * 0.5
+            text = TextNode(f"nav-link-{idx}")
+            text.setText(f"{weight:.2f}")
+            text.setAlign(TextNode.ACenter)
+            text.setTextColor(0.95, 1.0, 0.95, 0.9)
+            text_np = root.attachNewNode(text)
+            text_np.setScale(0.25)
+            text_np.setPos(mid + Vec3(0.0, 0.0, 0.4))
+            text_np.setEffect(BillboardEffect.makePointEye())
+            text_np.setLightOff(1)
+
+        if len(node_positions) == 0:
+            try:
+                root.removeNode()
+            except Exception:
+                pass
+            self._nav_debug_root = None
+
+    def _toggle_nav_debug_overlay(self) -> None:
+        if self._nav_debug_root is None:
+            self._build_nav_debug_overlay()
+            if self._nav_debug_root is None:
+                try:
+                    print("[debug] nav overlay unavailable (no navigation graph)")
+                except Exception:
+                    pass
+                return
+        self._nav_debug_enabled = not self._nav_debug_enabled
+        if self._nav_debug_enabled:
+            self._nav_debug_root.show()
+        else:
+            self._nav_debug_root.hide()
 
     # --- Input handling ---------------------------------------------------
 
