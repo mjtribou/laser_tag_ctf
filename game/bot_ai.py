@@ -1,5 +1,8 @@
 # game/bot_ai.py
-import math, random, time
+import heapq
+import math
+import random
+import time
 from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple, List, Optional, NamedTuple, Iterable, Sequence
@@ -420,16 +423,99 @@ class AStarBotBrain:
             return True
         return time.time() >= self._next_plan_t
 
-    def _plan(self, me_xy: Tuple[float, float], goal_xy: Tuple[float, float]):
+    def _plan(self, mapdata, me_xy: Tuple[float, float], goal_xy: Tuple[float, float]):
         now_t = time.time()
         self._last_goal_xy = goal_xy
-        sxy = ng.nearest_passable_xy(self._nav, me_xy[0], me_xy[1], max_radius=8)
-        gxy = ng.nearest_passable_xy(self._nav, goal_xy[0], goal_xy[1], max_radius=12)
-        self._path = ng.astar_bounded(self._nav, sxy, gxy, w=1.25, pad=12, max_iter=20000)
+
+        self._ensure_nav_index(mapdata, self.nav_graph)
+        graph_path = None
+        if self.nav_index is not None:
+            graph_path = self._plan_nav_graph_path(mapdata, me_xy, goal_xy)
+
+        if graph_path:
+            self._path = graph_path
+        else:
+            self._ensure_nav(mapdata)
+            sxy = ng.nearest_passable_xy(self._nav, me_xy[0], me_xy[1], max_radius=8)
+            gxy = ng.nearest_passable_xy(self._nav, goal_xy[0], goal_xy[1], max_radius=12)
+            self._path = ng.astar_bounded(self._nav, sxy, gxy, w=1.25, pad=12, max_iter=20000)
+
+        if not self._path:
+            self._path = [goal_xy]
+
         self._path_i = 0
         self._last_progress_t = now_t
         self._last_progress_dist = float("inf")
         self._next_plan_t = now_t + random.uniform(1.0, 2.0)
+
+    def _plan_nav_graph_path(self, mapdata, me_xy: Tuple[float, float], goal_xy: Tuple[float, float]) -> List[Tuple[float, float]]:
+        index = self.nav_index
+        if index is None or not index.nodes:
+            return []
+
+        start_node = index.closest((me_xy[0], me_xy[1], 0.0))
+        goal_node = index.closest((goal_xy[0], goal_xy[1], 0.0))
+        if start_node is None or goal_node is None:
+            return []
+
+        if start_node.node_id == goal_node.node_id:
+            return [(goal_xy[0], goal_xy[1])]
+
+        def exposure_penalty(node: TacticalNode) -> float:
+            tags = getattr(node, "tags", ()) or ()
+            return 0.0 if ("cover" in tags or "peek" in tags) else 0.5
+
+        open_heap: List[Tuple[float, str]] = []
+        g_score: Dict[str, float] = {start_node.node_id: 0.0}
+        f_score_start = self._graph_heuristic(start_node, goal_node)
+        heapq.heappush(open_heap, (f_score_start, start_node.node_id))
+        came_from: Dict[str, str] = {}
+
+        while open_heap:
+            _, current_id = heapq.heappop(open_heap)
+            if current_id == goal_node.node_id:
+                return self._reconstruct_nav_path(came_from, current_id, start_node.node_id, goal_xy)
+
+            current_node = index.nodes[current_id]
+            current_g = g_score[current_id]
+            for neighbor_node, weight in index.neighbors_of(current_id):
+                penalty = exposure_penalty(neighbor_node)
+                tentative_g = current_g + weight * (1.0 + penalty)
+                neighbor_id = neighbor_node.node_id
+                if tentative_g >= g_score.get(neighbor_id, float("inf")):
+                    continue
+                came_from[neighbor_id] = current_id
+                g_score[neighbor_id] = tentative_g
+                f_score = tentative_g + self._graph_heuristic(neighbor_node, goal_node) + penalty
+                heapq.heappush(open_heap, (f_score, neighbor_id))
+
+        return []
+
+    @staticmethod
+    def _graph_heuristic(node: TacticalNode, goal: TacticalNode) -> float:
+        nx, ny, nz = node.pos
+        gx, gy, gz = goal.pos
+        return math.sqrt((nx - gx) ** 2 + (ny - gy) ** 2 + (nz - gz) ** 2)
+
+    def _reconstruct_nav_path(
+        self,
+        came_from: Dict[str, str],
+        current_id: str,
+        start_id: str,
+        goal_xy: Tuple[float, float],
+    ) -> List[Tuple[float, float]]:
+        index = self.nav_index
+        if index is None:
+            return [goal_xy]
+        path_nodes = [current_id]
+        while current_id != start_id:
+            current_id = came_from[current_id]
+            path_nodes.append(current_id)
+        path_nodes.reverse()
+        coords = [(index.nodes[node_id].pos[0], index.nodes[node_id].pos[1]) for node_id in path_nodes]
+        if math.hypot(coords[-1][0] - goal_xy[0], coords[-1][1] - goal_xy[1]) > 0.5:
+            coords.append(goal_xy)
+        return coords
 
     def _advance_waypoint_if_close(self, me_xy: Tuple[float, float], threshold: float = 0.6):
         if not self._path or self._path_i >= len(self._path):
@@ -652,9 +738,9 @@ class AStarBotBrain:
         goal_xy = (decision.target[0], decision.target[1])
         me_xy = (me.x, me.y)
         if self._need_replan(goal_xy):
-            self._plan(me_xy, goal_xy)
+            self._plan(mapdata, me_xy, goal_xy)
         if self._stalled(me_xy):
-            self._plan(me_xy, goal_xy)
+            self._plan(mapdata, me_xy, goal_xy)
         self._advance_waypoint_if_close(me_xy)
 
         seek = self._current_target()
