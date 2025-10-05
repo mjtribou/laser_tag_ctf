@@ -528,7 +528,7 @@ class LaserTagServer:
             # Use A* navigation brain for bots
             from game.bot_ai import AStarBotBrain
             target_players = bool(self.cfg.get("server", {}).get("bots_target_players", True))
-            brain = AStarBotBrain(team, base_pos, enemy_base, target_players=target_players)
+            brain = AStarBotBrain(team, base_pos, enemy_base, target_players=target_players, nav_graph=self.nav_graph)
             self.bot_brains[pid] = brain
 
         print(f"[join] pid={pid} name={name} team={'RED' if team==TEAM_RED else 'BLUE'}")
