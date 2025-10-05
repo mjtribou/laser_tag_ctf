@@ -1,6 +1,9 @@
+import math
 from types import SimpleNamespace
 from pathlib import Path
 import sys
+
+import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -80,3 +83,66 @@ def test_decide_fire_requires_clear_sight():
 
     inputs_clear = brain_clear.decide(me_clear, gs_clear, map_clear)
     assert inputs_clear["fire"] is True
+
+
+def test_decide_strafes_when_aiming_off_path():
+    mapdata = _make_map([])
+
+    brain = AStarBotBrain(TEAM_RED, base_pos=(0.0, 0.0, 0.0), enemy_base=(0.0, 20.0, 0.0))
+    me, enemy, gs = _make_entities()
+    me.x = 0.0
+    me.yaw_rad = -math.pi / 2
+    enemy.x = 10.0
+    enemy.y = 0.0
+
+    target_pos = (0.0, 20.0, 0.0)
+
+    brain._evaluate_behaviors = lambda ctx: BotDecision("advance", 0.0, target_pos)
+
+    def fake_plan(mapdata_arg, me_xy, goal_xy):
+        brain._path = [me_xy, goal_xy]
+        brain._path_i = 0
+        brain._last_goal_xy = goal_xy
+        brain._last_progress_t = 0.0
+        brain._last_progress_dist = float("inf")
+
+    brain._plan = fake_plan
+
+    inputs = brain.decide(me, gs, mapdata)
+
+    assert inputs["fire"] is True
+    assert inputs["yaw"] < 0.0  # Looking toward enemy on +X axis
+    assert inputs["mz"] == pytest.approx(0.0, abs=1e-6)
+    assert inputs["mx"] < -0.5  # Strafing left to keep moving toward goal
+
+
+def test_decide_keeps_yaw_on_path_when_enemy_blocked():
+    wall = SimpleNamespace(pos=(0.0, 0.0, 1.5), size=(1.0, 6.0, 3.0))
+    mapdata = _make_map([wall])
+
+    brain = AStarBotBrain(TEAM_RED, base_pos=(0.0, 0.0, 0.0), enemy_base=(0.0, 20.0, 0.0))
+    me, enemy, gs = _make_entities()
+    enemy.x = 10.0
+    enemy.y = 0.0
+
+    target_pos = (0.0, 20.0, 0.0)
+
+    brain._evaluate_behaviors = lambda ctx: BotDecision("advance", 0.0, target_pos)
+
+    def fake_plan(mapdata_arg, me_xy, goal_xy):
+        brain._path = [me_xy, goal_xy]
+        brain._path_i = 0
+        brain._last_goal_xy = goal_xy
+        brain._last_progress_t = 0.0
+        brain._last_progress_dist = float("inf")
+
+    brain._plan = fake_plan
+
+    inputs = brain.decide(me, gs, mapdata)
+
+    assert inputs["fire"] is False
+    expected_yaw = math.degrees(math.atan2(-(target_pos[0] - me.x), target_pos[1] - me.y))
+    enemy_yaw = math.degrees(math.atan2(-(enemy.x - me.x), enemy.y - me.y))
+    assert abs(inputs["yaw"] - expected_yaw) < abs(inputs["yaw"] - enemy_yaw)
+    assert inputs["yaw"] > enemy_yaw + 30.0  # avoid tracking enemy through wall
+    assert inputs["mz"] > 0.5  # continue moving toward goal

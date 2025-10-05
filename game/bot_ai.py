@@ -875,24 +875,48 @@ class AStarBotBrain:
         if seek is None:
             seek = goal_xy
 
-        dx = seek[0] - me.x
-        dy = seek[1] - me.y
-        desired_yaw = math.atan2(-dx, dy)
-        curr = getattr(me, "yaw_rad", 0.0)
-        me.yaw_rad = _turn_toward(curr, desired_yaw, rate_rad_per_s=math.radians(150), dt=0.016)
-        inputs["yaw"] = math.degrees(me.yaw_rad)
-        inputs["mx"] = 0.0
-        inputs["mz"] = 1.0
+        move_vec = (seek[0] - me.x, seek[1] - me.y)
+        move_dist = math.hypot(move_vec[0], move_vec[1])
+        move_dir = (0.0, 0.0)
+        if move_dist > 1e-4:
+            move_dir = (move_vec[0] / move_dist, move_vec[1] / move_dist)
 
         enemy = self._nearest_enemy(me, gs, mapdata=mapdata)
+        aim_point = None
+        turn_rate = math.radians(150)
         if enemy is not None:
             dist = math.hypot(enemy.x - me.x, enemy.y - me.y)
             has_line = self._has_line_of_sight(me, enemy, mapdata)
             inputs["fire"] = dist <= 40.0 and has_line
-            if inputs["fire"]:
-                desired_yaw = math.atan2(-(enemy.x - me.x), enemy.y - me.y)
-                me.yaw_rad = _turn_toward(me.yaw_rad, desired_yaw, rate_rad_per_s=math.radians(260), dt=0.016)
-                inputs["yaw"] = math.degrees(me.yaw_rad)
+            if has_line:
+                aim_point = (enemy.x, enemy.y)
+                turn_rate = math.radians(260)
+        if aim_point is None and decision.focus is not None:
+            fx, fy, _ = decision.focus
+            aim_point = (fx, fy)
+        if aim_point is None and move_dist > 1e-4:
+            aim_point = seek
+
+        curr_yaw = getattr(me, "yaw_rad", 0.0)
+        if aim_point is not None:
+            desired_yaw = math.atan2(-(aim_point[0] - me.x), aim_point[1] - me.y)
+            me.yaw_rad = _turn_toward(curr_yaw, desired_yaw, rate_rad_per_s=turn_rate, dt=0.016)
+        inputs["yaw"] = math.degrees(getattr(me, "yaw_rad", 0.0))
+
+        yaw = getattr(me, "yaw_rad", 0.0)
+        sin_yaw = math.sin(yaw)
+        cos_yaw = math.cos(yaw)
+        forward = (-sin_yaw, cos_yaw)
+        right = (cos_yaw, sin_yaw)
+
+        if move_dist > 1e-4:
+            mz = forward[0] * move_dir[0] + forward[1] * move_dir[1]
+            mx = right[0] * move_dir[0] + right[1] * move_dir[1]
+            inputs["mx"] = max(-1.0, min(1.0, mx))
+            inputs["mz"] = max(-1.0, min(1.0, mz))
+        else:
+            inputs["mx"] = 0.0
+            inputs["mz"] = 0.0
 
         if self._flag_interact_needed(me, gs):
             inputs["interact"] = True
