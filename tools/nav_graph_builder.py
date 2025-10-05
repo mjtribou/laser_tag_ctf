@@ -47,6 +47,7 @@ class NavBuilder:
         bounds: Sequence[float],
         *,
         link_radius: float = 18.0,
+        objectives: Optional[Dict[str, Sequence[float]]] = None,
     ) -> None:
         self.grid = grid
         self.origin = origin_indices
@@ -62,11 +63,25 @@ class NavBuilder:
         self.links: List[SynthLink] = []
         self._dedupe_keys: set[Tuple[int, int, int, int]] = set()
 
+        self.objective_points: Dict[str, Tuple[float, float, float]] = {}
+        if objectives:
+            for name, pos in objectives.items():
+                if not pos:
+                    continue
+                try:
+                    px = float(pos[0])
+                    py = float(pos[1])
+                    pz = float(pos[2])
+                except Exception:
+                    continue
+                self.objective_points[name] = (px, py, pz)
+
         self._solid = self._collect_solids()
 
     def build(self) -> None:
         walkable = self._collect_walkable_cells()
         self._emit_corner_nodes(walkable)
+        self._emit_objective_nodes(walkable)
         self._connect_nodes()
 
     def _collect_solids(self) -> set[Tuple[int, int, int]]:
@@ -129,6 +144,99 @@ class NavBuilder:
                     self._create_wall_node(x, y, z, dx=-1, dy=0, corner_tag="corner:NW")
                 if free_sw:
                     self._create_wall_node(x, y, z, dx=-1, dy=0, corner_tag="corner:SW")
+
+    def _emit_objective_nodes(self, walkable: Iterable[Tuple[int, int, int]]) -> None:
+        if not self.objective_points:
+            return
+
+        walk_positions = [self._cell_world_position(x, y, z) for x, y, z in walkable]
+
+        for name, raw_pos in self.objective_points.items():
+            target = (float(raw_pos[0]), float(raw_pos[1]), float(raw_pos[2]))
+            snapped = self._closest_walkable_position(target, walk_positions)
+            if snapped is not None:
+                pos = snapped
+            else:
+                pos = (
+                    target[0],
+                    target[1],
+                    target[2] + max(self.height_offset, 0.1),
+                )
+
+            if self._point_in_wall(pos):
+                continue
+
+            node = SynthNode(
+                node_id=f"objective_{name}",
+                pos=pos,
+                kind="objective",
+                tags=self._objective_tags(name, pos),
+                facing=self._objective_facing(name, pos),
+                radius=self._objective_radius(name),
+            )
+            self.nodes.append(node)
+
+    def _cell_world_position(self, x: int, y: int, z: int) -> Tuple[float, float, float]:
+        pos_x = (self.origin[0] + x + 0.5) * self.cube
+        pos_y = (self.origin[1] + y + 0.5) * self.cube
+        floor_plane = (self.origin[2] + z) * self.cube
+        pos_z = floor_plane + self.height_offset
+        return (pos_x, pos_y, pos_z)
+
+    def _closest_walkable_position(
+        self,
+        target: Tuple[float, float, float],
+        walk_positions: Sequence[Tuple[float, float, float]],
+    ) -> Optional[Tuple[float, float, float]]:
+        if not walk_positions:
+            return None
+        tx, ty, _ = target
+        best_pos: Optional[Tuple[float, float, float]] = None
+        best_dist = float("inf")
+        for wx, wy, wz in walk_positions:
+            dist = math.hypot(wx - tx, wy - ty)
+            if dist < best_dist:
+                best_dist = dist
+                best_pos = (wx, wy, wz)
+        return best_pos
+
+    def _objective_tags(self, name: str, pos: Tuple[float, float, float]) -> Tuple[str, ...]:
+        tags = {"objective", name}
+        area_tag = self._team_tag(pos[0])
+        if area_tag:
+            tags.add(area_tag)
+        if name.endswith("_base"):
+            tags.update({"base", "attack", "defend"})
+        if name == "neutral_flag":
+            tags.update({"flag", "neutral_flag_stand"})
+        return tuple(sorted(tags))
+
+    def _objective_facing(self, name: str, pos: Tuple[float, float, float]) -> Tuple[float, float, float]:
+        target: Optional[Tuple[float, float, float]] = None
+        if name == "red_base":
+            target = self.objective_points.get("blue_base")
+        elif name == "blue_base":
+            target = self.objective_points.get("red_base")
+        elif name == "neutral_flag":
+            red = self.objective_points.get("red_base")
+            blue = self.objective_points.get("blue_base")
+            if red and blue:
+                target = ((red[0] + blue[0]) * 0.5, (red[1] + blue[1]) * 0.5, pos[2])
+
+        if target is None:
+            target = (0.0, pos[1], pos[2])
+
+        dx = float(target[0]) - pos[0]
+        dy = float(target[1]) - pos[1]
+        length = math.hypot(dx, dy)
+        if length < 1e-6:
+            return (0.0, 1.0, 0.0)
+        return (dx / length, dy / length, 0.0)
+
+    def _objective_radius(self, name: str) -> float:
+        if name.endswith("_base"):
+            return max(self.agent_radius + 0.6, 1.5)
+        return max(self.agent_radius + 0.3, 1.0)
 
     def _has_wall(self, x: int, y: int, z: int) -> bool:
         return any(self._is_solid(x, y, z + dz) for dz in (0, 1, 2))
@@ -430,6 +538,16 @@ def build_nav_graph(
     grid, _registry, existing_graph = load_map_to_voxels(str(map_path))
     origin = _compute_origin_indices(mapdata)
 
+    objectives = {
+        key: value
+        for key, value in (
+            ("red_base", getattr(mapdata, "red_base", None)),
+            ("blue_base", getattr(mapdata, "blue_base", None)),
+            ("neutral_flag", getattr(mapdata, "neutral_flag_stand", None)),
+        )
+        if value is not None
+    }
+
     builder = NavBuilder(
         grid=grid,
         origin_indices=origin,
@@ -437,6 +555,7 @@ def build_nav_graph(
         agent_radius=getattr(mapdata, "agent_radius", 0.5) or 0.5,
         bounds=getattr(mapdata, "bounds", (0.0, 0.0)),
         link_radius=link_radius,
+        objectives=objectives,
     )
     builder.build()
 
