@@ -57,6 +57,8 @@ class PlayerInput:
     """Immediate input intent gathered from clients/bots."""
     mx: float = 0.0
     mz: float = 0.0
+    accel_x: float = 0.0
+    accel_y: float = 0.0
     yaw: float = 0.0  # degrees, mirrors client protocol
     pitch: float = 0.0  # degrees
     fire: bool = False

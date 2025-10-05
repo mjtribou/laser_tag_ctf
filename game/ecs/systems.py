@@ -102,12 +102,24 @@ class MovementSystem(System):
             phys.on_ground = on_ground
 
             # Desired horizontal velocity from intent
-            vdx, vdy = local_move_delta(mx, mz, pos.yaw, speed, 1.0)
+            accel_x = float(getattr(inputs, "accel_x", 0.0))
+            accel_y = float(getattr(inputs, "accel_y", 0.0))
+
+            use_world = abs(accel_x) + abs(accel_y) > 1e-6
+            if use_world:
+                world_mag = math.hypot(accel_x, accel_y)
+                if world_mag > 1.0:
+                    accel_x /= world_mag
+                    accel_y /= world_mag
+                vdx = accel_x * speed
+                vdy = accel_y * speed
+                intent_mag = min(1.0, world_mag)
+            else:
+                vdx, vdy = local_move_delta(mx, mz, pos.yaw, speed, 1.0)
+                intent_mag = min(1.0, math.hypot(mx, mz))
 
             cur_vx, cur_vy = phys.vx, phys.vy
             accel_limit = accel_ground if on_ground else accel_air
-
-            intent_mag = min(1.0, math.hypot(mx, mz))
             cur_spd = math.hypot(cur_vx, cur_vy)
             if intent_mag <= 1e-6:
                 accel_limit = decel_release_g if on_ground else decel_release_a

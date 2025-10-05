@@ -114,6 +114,8 @@ def test_decide_strafes_when_aiming_off_path():
     assert inputs["yaw"] < 0.0  # Looking toward enemy on +X axis
     assert inputs["mz"] == pytest.approx(0.0, abs=1e-6)
     assert inputs["mx"] < -0.5  # Strafing left to keep moving toward goal
+    assert inputs["accel_x"] == pytest.approx(0.0, abs=1e-6)
+    assert inputs["accel_y"] > 0.8
 
 
 def test_decide_keeps_yaw_on_path_when_enemy_blocked():
@@ -146,6 +148,7 @@ def test_decide_keeps_yaw_on_path_when_enemy_blocked():
     assert abs(inputs["yaw"] - expected_yaw) < abs(inputs["yaw"] - enemy_yaw)
     assert inputs["yaw"] > enemy_yaw + 30.0  # avoid tracking enemy through wall
     assert inputs["mz"] > 0.5  # continue moving toward goal
+    assert inputs["accel_y"] > 0.5
 
 
 def test_debug_payload_includes_path_nodes():

@@ -68,6 +68,7 @@ from panda3d.core import loadPrcFileData
 
 from common.net import send_json, read_json, lan_discovery_broadcast
 from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL, PLAYER_HEIGHT
+from game.transform import local_move_delta
 from scoreboard import Scoreboard
 from game.map_gen import load_from_file as load_map_from_file
 from engine.config import get as engine_config_get
@@ -519,9 +520,17 @@ class PlayerRole(ClientRole):
         except Exception:
             app.crosshair.setPos(0.01 * app.aim_yaw_offset, 0.01 * app.aim_pitch_offset)
 
+        accel_x = 0.0
+        accel_y = 0.0
+        if abs(mx) + abs(mz) > 1e-6:
+            yaw_rad = math.radians(app.yaw)
+            accel_x, accel_y = local_move_delta(mx, mz, yaw_rad, 1.0, 1.0)
+
         data = {
             "mx": mx,
             "mz": mz,
+            "accel_x": accel_x,
+            "accel_y": accel_y,
             "jump": "space" in app.keys,
             "crouch": ("control" in app.keys) if not app._toggle_crouch else bool(getattr(app, "_crouch_toggle_state", False)),
             "walk": "shift" in app.keys,

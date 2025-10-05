@@ -1045,6 +1045,8 @@ class LaserTagServer:
             data = self.inputs.get(pid, {})
             comp.mx = float(data.get("mx", 0.0))
             comp.mz = float(data.get("mz", 0.0))
+            comp.accel_x = float(data.get("accel_x", data.get("ax", getattr(comp, "accel_x", 0.0))))
+            comp.accel_y = float(data.get("accel_y", data.get("ay", getattr(comp, "accel_y", 0.0))))
             comp.yaw = float(data.get("yaw", comp.yaw))
             comp.pitch = float(data.get("pitch", comp.pitch))
             comp.fire = bool(data.get("fire", False))
@@ -1288,7 +1290,13 @@ class LaserTagServer:
                 continue
 
             inp = self.inputs.get(pid, {})
-            intent_mag = min(1.0, math.hypot(float(inp.get("mx", 0.0)), float(inp.get("mz", 0.0))))
+            intent_mag = 0.0
+            ax = float(inp.get("accel_x", inp.get("ax", 0.0)))
+            ay = float(inp.get("accel_y", inp.get("ay", 0.0)))
+            if abs(ax) + abs(ay) > 1e-6:
+                intent_mag = min(1.0, math.hypot(ax, ay))
+            else:
+                intent_mag = min(1.0, math.hypot(float(inp.get("mx", 0.0)), float(inp.get("mz", 0.0))))
 
             prev = self._last_pos.get(pid, (p.x, p.y, p.z))
             dx, dy, dz = p.x - prev[0], p.y - prev[1], p.z - prev[2]
@@ -1568,7 +1576,9 @@ class LaserTagServer:
                 brain._next_think_t = tnow + jitter
                 # seed a benign last input so bots stay idle until first think
                 brain._last_inputs = {
-                    "mx": 0.0, "mz": 0.0, "jump": False, "crouch": False, "walk": False,
+                    "mx": 0.0, "mz": 0.0,
+                    "accel_x": 0.0, "accel_y": 0.0,
+                    "jump": False, "crouch": False, "walk": False,
                     "fire": False, "interact": False,
                     "yaw": math.degrees(getattr(self.gs.players[pid], "yaw_rad", 0.0)),
                     "pitch": math.degrees(getattr(self.gs.players[pid], "pitch_rad", 0.0)),

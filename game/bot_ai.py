@@ -36,7 +36,8 @@ class SimpleBotBrain:
 
     def decide(self, me, gs, mapdata):
         now = time.time()
-        inputs = {"mx":0.0,"mz":0.0,"jump":False,"crouch":False,"walk":False,"fire":False,"interact":False,
+        inputs = {"mx":0.0,"mz":0.0,"accel_x":0.0,"accel_y":0.0,
+                  "jump":False,"crouch":False,"walk":False,"fire":False,"interact":False,
                   "yaw": math.degrees(getattr(me, "yaw_rad", 0.0)),
                   "pitch": math.degrees(getattr(me, "pitch_rad", 0.0))}
         # priorities
@@ -61,6 +62,9 @@ class SimpleBotBrain:
 
         inputs["mx"] = 0.0
         inputs["mz"] = 1.0
+        yaw_now = getattr(me, "yaw_rad", 0.0)
+        inputs["accel_x"] = -math.sin(yaw_now)
+        inputs["accel_y"] = math.cos(yaw_now)
         inputs["fire"] = random.random() < 0.05
         inputs["walk"] = False
         inputs["crouch"] = random.random() < 0.02
@@ -854,6 +858,8 @@ class AStarBotBrain:
         inputs = {
             "mx": 0.0,
             "mz": 0.0,
+            "accel_x": 0.0,
+            "accel_y": 0.0,
             "jump": False,
             "crouch": decision.crouch,
             "walk": decision.walk,
@@ -914,9 +920,13 @@ class AStarBotBrain:
             mx = right[0] * move_dir[0] + right[1] * move_dir[1]
             inputs["mx"] = max(-1.0, min(1.0, mx))
             inputs["mz"] = max(-1.0, min(1.0, mz))
+            inputs["accel_x"] = move_dir[0]
+            inputs["accel_y"] = move_dir[1]
         else:
             inputs["mx"] = 0.0
             inputs["mz"] = 0.0
+            inputs["accel_x"] = 0.0
+            inputs["accel_y"] = 0.0
 
         if self._flag_interact_needed(me, gs):
             inputs["interact"] = True
