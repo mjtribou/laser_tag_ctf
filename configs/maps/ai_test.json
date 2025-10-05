@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "bounds": [160, 48],
+  "cube_size": 1.0,
+  "agent_radius": 0.5,
+  "red_base": [-70.0, 0.0, 0.0],
+  "blue_base": [70.0, 0.0, 0.0],
+  "neutral_flag_stand": [0.0, 0.0, 0.0],
+  "blocks": [
+    { "pos": [0.0, 0.0, 0.5], "size": [152.0, 40.0, 1.0], "box_type": 0 },
+    { "pos": [-32.0, -12.0, 1.5], "size": [10.0, 8.0, 3.0], "box_type": 1 },
+    { "pos": [-32.0, 12.0, 1.5], "size": [10.0, 8.0, 3.0], "box_type": 1 },
+    { "pos": [-20.0, 0.0, 2.5], "size": [8.0, 12.0, 5.0], "box_type": 1 },
+    { "pos": [32.0, -12.0, 1.5], "size": [10.0, 8.0, 3.0], "box_type": 2 },
+    { "pos": [32.0, 12.0, 1.5], "size": [10.0, 8.0, 3.0], "box_type": 2 },
+    { "pos": [20.0, 0.0, 2.5], "size": [8.0, 12.0, 5.0], "box_type": 2 },
+    { "pos": [0.0, 0.0, 2.5], "size": [12.0, 6.0, 5.0], "box_type": 3 },
+    { "pos": [0.0, 18.0, 1.5], "size": [16.0, 6.0, 3.0], "box_type": 0 },
+    { "pos": [0.0, -18.0, 1.5], "size": [16.0, 6.0, 3.0], "box_type": 0 }
+  ],
+  "nav": {
+    "nodes": [
+      { "id": "red_cover_left", "pos": [-34.0, -12.0, 0.0], "type": "cover", "tags": ["defend", "red"], "facing": [1.0, 0.0, 0.0], "radius": 2.0 },
+      { "id": "red_cover_right", "pos": [-34.0, 12.0, 0.0], "type": "cover", "tags": ["defend", "red"], "facing": [1.0, 0.0, 0.0], "radius": 2.0 },
+      { "id": "red_overlook", "pos": [-20.0, 0.0, 2.5], "type": "highground", "tags": ["control", "red"], "facing": [1.0, 0.0, 0.0], "radius": 2.0 },
+      { "id": "mid_bridge", "pos": [0.0, 0.0, 2.5], "type": "highground", "tags": ["mid", "control"], "facing": [0.0, 1.0, 0.0], "radius": 3.0 },
+      { "id": "mid_upper_lane", "pos": [0.0, 18.0, 0.0], "type": "lane", "tags": ["mid", "flank"], "radius": 1.8 },
+      { "id": "mid_lower_lane", "pos": [0.0, -18.0, 0.0], "type": "lane", "tags": ["mid", "flank"], "radius": 1.8 },
+      { "id": "blue_overlook", "pos": [20.0, 0.0, 2.5], "type": "highground", "tags": ["control", "blue"], "facing": [-1.0, 0.0, 0.0], "radius": 2.0 },
+      { "id": "blue_cover_left", "pos": [34.0, -12.0, 0.0], "type": "cover", "tags": ["defend", "blue"], "facing": [-1.0, 0.0, 0.0], "radius": 2.0 },
+      { "id": "blue_cover_right", "pos": [34.0, 12.0, 0.0], "type": "cover", "tags": ["defend", "blue"], "facing": [-1.0, 0.0, 0.0], "radius": 2.0 }
+    ],
+    "links": [
+      { "from": "red_cover_left", "to": "red_overlook", "weight": 1.0 },
+      { "from": "red_cover_right", "to": "red_overlook", "weight": 1.0 },
+      { "from": "red_overlook", "to": "mid_bridge", "weight": 0.9 },
+      { "from": "mid_bridge", "to": "mid_upper_lane", "weight": 1.1 },
+      { "from": "mid_bridge", "to": "mid_lower_lane", "weight": 1.1 },
+      { "from": "mid_upper_lane", "to": "blue_cover_right", "weight": 1.0, "bidirectional": false },
+      { "from": "mid_lower_lane", "to": "blue_cover_left", "weight": 1.0, "bidirectional": false },
+      { "from": "mid_bridge", "to": "blue_overlook", "weight": 0.9 },
+      { "from": "blue_overlook", "to": "blue_cover_left", "weight": 1.0 },
+      { "from": "blue_overlook", "to": "blue_cover_right", "weight": 1.0 }
+    ]
+  }
+}
