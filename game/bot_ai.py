@@ -80,6 +80,8 @@ class SimpleBotBrain:
 # --- Shared nav-cache across all brains (one grid per map/settings) ---
 _FIELD_CACHE = {}  # key: (nav_key, red_xy, blue_xy) -> {"red": (dist,parent), "blue": (dist,parent)}
 _NAV_CACHE: Dict[Tuple, ng.NavGrid] = {}
+_ENEMY_MEMORY: Dict[int, Dict[int, Tuple[Tuple[float, float, float], float]]] = defaultdict(dict)
+_ENEMY_MEMORY_TTL = 12.0
 
 
 @dataclass
@@ -229,6 +231,7 @@ class BotContext:
     mapdata: any
     nav_graph: Optional[TacticalGraph]
     now: float
+    visible_enemies: Tuple[any, ...] = ()
 
     @property
     def team(self) -> int:
@@ -669,6 +672,52 @@ class AStarBotBrain:
                 return True
         return False
 
+    def _enemy_memory_bucket(self) -> Dict[int, Tuple[Tuple[float, float, float], float]]:
+        return _ENEMY_MEMORY.setdefault(self.team, {})
+
+    def _remember_enemy(self, enemy, now: Optional[float] = None) -> None:
+        pid = getattr(enemy, "pid", None)
+        if pid is None:
+            return
+        if now is None:
+            now = time.time()
+        bucket = self._enemy_memory_bucket()
+        bucket[pid] = ((float(enemy.x), float(enemy.y), float(enemy.z)), float(now))
+
+    def _forget_stale_enemies(self, now: float) -> None:
+        bucket = self._enemy_memory_bucket()
+        stale: List[int] = []
+        for pid, (_pos, seen_at) in bucket.items():
+            if (now - seen_at) > _ENEMY_MEMORY_TTL:
+                stale.append(pid)
+        for pid in stale:
+            bucket.pop(pid, None)
+
+    def _last_known_enemy(self, now: float) -> Optional[Tuple[Tuple[float, float, float], float, int]]:
+        bucket = self._enemy_memory_bucket()
+        best: Optional[Tuple[Tuple[float, float, float], float, int]] = None
+        for pid, value in bucket.items():
+            pos, seen_at = value
+            age = now - seen_at
+            if age > _ENEMY_MEMORY_TTL:
+                continue
+            if best is None or seen_at > best[1]:
+                best = (pos, seen_at, pid)
+        if best is None:
+            return None
+        pos, seen_at, pid = best
+        return pos, now - seen_at, pid
+
+    def _update_visible_enemies(self, me, gs, mapdata, now: float) -> Tuple[any, ...]:
+        visible: List[any] = []
+        for enemy in gs.players.values():
+            if enemy.team == me.team or not getattr(enemy, "alive", True):
+                continue
+            if self._has_line_of_sight(me, enemy, mapdata):
+                self._remember_enemy(enemy, now)
+                visible.append(enemy)
+        return tuple(visible)
+
     def _nearest_enemy(
         self,
         me,
@@ -676,10 +725,20 @@ class AStarBotBrain:
         max_range: float = 45.0,
         require_line: bool = False,
         mapdata=None,
+        now: Optional[float] = None,
+        candidates: Optional[Iterable] = None,
+        prechecked_line: bool = False,
     ):
+        if now is None:
+            now = time.time()
         best = None
         best_d2 = max_range * max_range
-        for enemy in gs.players.values():
+        pool: Iterable
+        if candidates is not None:
+            pool = candidates
+        else:
+            pool = gs.players.values()
+        for enemy in pool:
             if enemy.team == me.team or not enemy.alive:
                 continue
             try:
@@ -690,11 +749,13 @@ class AStarBotBrain:
             dx = enemy.x - me.x
             dy = enemy.y - me.y
             d2 = dx * dx + dy * dy
-            if require_line and not self._has_line_of_sight(me, enemy, mapdata):
+            if require_line and not prechecked_line and not self._has_line_of_sight(me, enemy, mapdata):
                 continue
             if d2 < best_d2:
                 best_d2 = d2
                 best = enemy
+        if best is not None:
+            self._remember_enemy(best, now)
         return best
 
     # --- Behavior evaluation --------------------------------------------
@@ -773,12 +834,31 @@ class AStarBotBrain:
         return BotDecision("defend_base", score, target, crouch=True, focus=(threat.x, threat.y, threat.z))
 
     def _beh_hunt_enemy(self, ctx: BotContext) -> Optional[BotDecision]:
-        enemy = self._nearest_enemy(ctx.me, ctx.gs, max_range=60.0, mapdata=ctx.mapdata)
-        if enemy is None:
+        if ctx.visible_enemies:
+            enemy = self._nearest_enemy(
+                ctx.me,
+                ctx.gs,
+                max_range=60.0,
+                mapdata=ctx.mapdata,
+                now=ctx.now,
+                candidates=ctx.visible_enemies,
+                prechecked_line=True,
+            )
+        else:
+            enemy = None
+        if enemy is not None:
+            score = 35.0
+            target = (enemy.x, enemy.y, enemy.z)
+            return BotDecision("hunt_enemy", score, target, focus=(enemy.x, enemy.y, enemy.z))
+
+        memory = self._last_known_enemy(ctx.now)
+        if memory is None:
             return None
-        score = 35.0
-        target = (enemy.x, enemy.y, enemy.z)
-        return BotDecision("hunt_enemy", score, target, focus=(enemy.x, enemy.y, enemy.z))
+        pos, age, _pid = memory
+        freshness = max(0.0, 1.0 - (age / _ENEMY_MEMORY_TTL))
+        score = 20.0 + 10.0 * freshness
+        target = (pos[0], pos[1], pos[2])
+        return BotDecision("hunt_enemy", score, target, focus=(pos[0], pos[1], pos[2]))
 
     def _beh_attack_enemy_base(self, ctx: BotContext) -> BotDecision:
         node = self._closest_node(ctx, (ctx.enemy_base[0], ctx.enemy_base[1]), required_tags=("attack",))
@@ -837,13 +917,18 @@ class AStarBotBrain:
         self._ensure_nav(mapdata)
         self._ensure_fields(mapdata)
 
+        now = time.time()
+        self._forget_stale_enemies(now)
+        visible = self._update_visible_enemies(me, gs, mapdata, now)
+
         ctx = BotContext(
             brain=self,
             me=me,
             gs=gs,
             mapdata=mapdata,
             nav_graph=self.nav_graph,
-            now=time.time(),
+            now=now,
+            visible_enemies=visible,
         )
 
         decision = self._evaluate_behaviors(ctx)
@@ -881,16 +966,23 @@ class AStarBotBrain:
         if move_dist > 1e-4:
             move_dir = (move_vec[0] / move_dist, move_vec[1] / move_dist)
 
-        enemy = self._nearest_enemy(me, gs, mapdata=mapdata)
+        enemy = None
+        if ctx.visible_enemies:
+            enemy = self._nearest_enemy(
+                me,
+                gs,
+                mapdata=mapdata,
+                now=ctx.now,
+                candidates=ctx.visible_enemies,
+                prechecked_line=True,
+            )
         aim_point = None
         turn_rate = math.radians(150)
         if enemy is not None:
             dist = math.hypot(enemy.x - me.x, enemy.y - me.y)
-            has_line = self._has_line_of_sight(me, enemy, mapdata)
-            inputs["fire"] = dist <= 40.0 and has_line
-            if has_line:
-                aim_point = (enemy.x, enemy.y)
-                turn_rate = math.radians(260)
+            inputs["fire"] = dist <= 40.0
+            aim_point = (enemy.x, enemy.y)
+            turn_rate = math.radians(260)
         if aim_point is None and decision.focus is not None:
             fx, fy, _ = decision.focus
             aim_point = (fx, fy)
