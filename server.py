@@ -54,6 +54,7 @@ from engine.config import get as engine_config_get
 from world.map_adapter import load_map_to_voxels
 from world.chunks import ChunkIndex
 from render.chunk_mesher import ChunkMesher
+from world.voxel_query import build_voxel_query, VoxelQuery
 # ---------- Config ----------
 def load_config(path: str) -> Dict[str, Any]:
     with open(path, "r") as f:
@@ -133,6 +134,7 @@ class LaserTagServer:
         self.nav_graph = None
         self.bot_debug: Dict[int, Dict[str, Any]] = {}
         self.spectator_clients: List[asyncio.StreamWriter] = []
+        self._voxel_query: Optional[VoxelQuery] = None
 
         # ECS world and entity mappings
         self.ecs = ECSWorld()
@@ -168,12 +170,20 @@ class LaserTagServer:
 
         # ECS systems – movement/combat/collision
         self.movement_system = MovementSystem(self.ecs, self.cfg["gameplay"])
-        self.combat_system = CombatSystem(self.ecs, self.cfg["gameplay"], self.cfg["server"], self.world, now_fn=now)
+        self.combat_system = CombatSystem(
+            self.ecs,
+            self.cfg["gameplay"],
+            self.cfg["server"],
+            self.world,
+            voxel_query=self._voxel_query,
+            now_fn=now,
+        )
         self.collision_system = CollisionSystem(self.ecs, self.cfg["gameplay"])
         self._pre_physics_systems = [self.movement_system, self.combat_system]
         self._post_physics_systems = [self.movement_system, self.collision_system]
 
         self._build_static_world()
+        self.combat_system.voxel_query = self._voxel_query
         self._init_flag_entities()
 
     # ---------- Physics world ----------
@@ -308,6 +318,11 @@ class LaserTagServer:
                     if opaque:
                         solid_voxels.add((wx, wy, wz))
 
+        voxel_query = build_voxel_query(solid_voxels, cube_size)
+        self._voxel_query = voxel_query
+        if voxel_query is not None:
+            setattr(self.mapdata, "voxel_lookup", voxel_query)
+
         def is_solid(wx: int, wy: int, wz: int) -> bool:
             return (wx, wy, wz) in solid_voxels
 
@@ -423,6 +438,8 @@ class LaserTagServer:
 
     # ---------- Spawn helpers ----------
     def _point_inside_any_block(self, x: float, y: float, z: float, margin: float = 0.02) -> bool:
+        if self._voxel_query is not None:
+            return self._voxel_query.point_inside(x, y, z, margin)
         for b in self.mapdata.blocks:
             if aabb_contains(x, y, z, b.pos, b.size, margin):
                 return True
@@ -884,24 +901,30 @@ class LaserTagServer:
         t_wall = None
         wall_point = None
         EPS_HIT = 1e-4
-        try:
-            res = self.world.rayTestAll(LPoint3(sx, sy, sz), LPoint3(ex, ey, ez))
-            # Find the closest STATIC hit strictly after the start (avoid self-grazes)
-            for hit in res.getHits():
-                np_hit = NodePath(hit.getNode())
-                if np_hit.is_empty():
-                    continue
-                if np_hit.getPythonTag("kind") != "static":
-                    continue  # ignore players, dynamic bodies, etc.
-                frac = float(hit.getHitFraction())
-                if frac <= EPS_HIT:
-                    continue
-                if (t_wall is None) or (frac < t_wall):
-                    t_wall = frac
-                    wall_point = (sx + Dx*frac, sy + Dy*frac, sz + Dz*frac)
-        except Exception:
-            # If Bullet isn't available for some reason, we just treat as no wall
-            pass
+        need_bullet = True
+        if self._voxel_query is not None:
+            if not self._voxel_query.ray_hits_solid((sx, sy, sz), (ex, ey, ez), ignore_start=True, ignore_end=True):
+                need_bullet = False
+
+        if need_bullet:
+            try:
+                res = self.world.rayTestAll(LPoint3(sx, sy, sz), LPoint3(ex, ey, ez))
+                # Find the closest STATIC hit strictly after the start (avoid self-grazes)
+                for hit in res.getHits():
+                    np_hit = NodePath(hit.getNode())
+                    if np_hit.is_empty():
+                        continue
+                    if np_hit.getPythonTag("kind") != "static":
+                        continue  # ignore players, dynamic bodies, etc.
+                    frac = float(hit.getHitFraction())
+                    if frac <= EPS_HIT:
+                        continue
+                    if (t_wall is None) or (frac < t_wall):
+                        t_wall = frac
+                        wall_point = (sx + Dx*frac, sy + Dy*frac, sz + Dz*frac)
+            except Exception:
+                # If Bullet isn't available for some reason, we just treat as no wall
+                pass
 
         # ---- Player AABB hit test (kept from your version) ----
         friendly_fire = bool(self.cfg["gameplay"].get("friendly_fire", False))

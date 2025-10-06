@@ -11,6 +11,7 @@ from panda3d.core import LPoint3, Vec3, NodePath
 from panda3d.bullet import BulletWorld
 
 from game.transform import deg_to_rad, forward_vector, local_move_delta, wrap_pi
+from world.voxel_query import VoxelQuery
 
 from .components import (
     CharacterBody,
@@ -172,12 +173,14 @@ class CombatSystem(System):
         gameplay_cfg: Dict[str, float],
         server_cfg: Dict[str, float],
         bullet_world: BulletWorld,
+        voxel_query: Optional["VoxelQuery"] = None,
         now_fn = time.time,
     ) -> None:
         super().__init__(world)
         self.gameplay_cfg = gameplay_cfg
         self.server_cfg = server_cfg
         self.bullet_world = bullet_world
+        self.voxel_query = voxel_query
         self._now = now_fn
         self.respawn_seconds = float(server_cfg.get("respawn_seconds", 5.0))
         self.beam_events: List[Dict[str, float]] = []
@@ -324,22 +327,29 @@ class CombatSystem(System):
         t_wall: Optional[float] = None
         wall_point: Optional[Tuple[float, float, float]] = None
         eps_hit = 1e-4
-        try:
-            res = self.bullet_world.rayTestAll(LPoint3(sx, sy, sz), LPoint3(ex, ey, ez))
-            for hit in res.getHits():
-                np_hit = NodePath(hit.getNode())
-                if np_hit.is_empty():
-                    continue
-                if np_hit.getPythonTag("kind") != "static":
-                    continue
-                frac = float(hit.getHitFraction())
-                if frac <= eps_hit:
-                    continue
-                if t_wall is None or frac < t_wall:
-                    t_wall = frac
-                    wall_point = (sx + dx * frac, sy + dy * frac, sz + dz * frac)
-        except Exception:
-            pass
+
+        need_bullet = True
+        if self.voxel_query is not None:
+            if not self.voxel_query.ray_hits_solid((sx, sy, sz), (ex, ey, ez), ignore_start=True, ignore_end=True):
+                need_bullet = False
+
+        if need_bullet:
+            try:
+                res = self.bullet_world.rayTestAll(LPoint3(sx, sy, sz), LPoint3(ex, ey, ez))
+                for hit in res.getHits():
+                    np_hit = NodePath(hit.getNode())
+                    if np_hit.is_empty():
+                        continue
+                    if np_hit.getPythonTag("kind") != "static":
+                        continue
+                    frac = float(hit.getHitFraction())
+                    if frac <= eps_hit:
+                        continue
+                    if t_wall is None or frac < t_wall:
+                        t_wall = frac
+                        wall_point = (sx + dx * frac, sy + dy * frac, sz + dz * frac)
+            except Exception:
+                pass
 
         # Axis aligned bounding box intersection against all other alive players
         shooter_info = self.world.get_component(shooter_entity, PlayerInfo)

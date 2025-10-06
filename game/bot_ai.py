@@ -373,6 +373,7 @@ class AStarBotBrain:
         self._last_progress_t: float = 0.0
         self._last_progress_dist: float = float("inf")
         self.last_decision: Optional[BotDecision] = None
+        self._voxel_lookup = None
 
         # Cached geometry for cheap line-of-sight checks
         self._los_cache_key: Optional[Tuple[int, int, float]] = None
@@ -422,6 +423,14 @@ class AStarBotBrain:
         self._fields = fields
 
     def _ensure_los_blocks(self, mapdata) -> None:
+        voxel_lookup = getattr(mapdata, "voxel_lookup", None)
+        if voxel_lookup is not None:
+            self._voxel_lookup = voxel_lookup
+            self._los_blocks = []
+            self._los_cache_key = ("voxel_lookup", id(voxel_lookup))
+            return
+
+        self._voxel_lookup = None
         if mapdata is None:
             self._los_blocks = []
             self._los_cache_key = None
@@ -500,6 +509,20 @@ class AStarBotBrain:
 
     def _has_line_of_sight(self, me, target, mapdata) -> bool:
         self._ensure_los_blocks(mapdata)
+        if self._voxel_lookup is not None:
+            eye_offset = 0.30 * PLAYER_HEIGHT
+            start = (
+                float(getattr(me, "x", 0.0)),
+                float(getattr(me, "y", 0.0)),
+                float(getattr(me, "z", 0.0)) + eye_offset,
+            )
+            end = (
+                float(getattr(target, "x", 0.0)),
+                float(getattr(target, "y", 0.0)),
+                float(getattr(target, "z", 0.0)) + eye_offset,
+            )
+            return not self._voxel_lookup.ray_hits_solid(start, end, ignore_start=True, ignore_end=True)
+
         if not self._los_blocks:
             return True
 

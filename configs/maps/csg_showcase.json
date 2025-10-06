@@ -162,7 +162,7 @@
       ]
     },
     {
-      "op": "intersect",
+      "op": "subtract",
       "box_type": 3,
       "children": [
         {
@@ -364,5 +364,2923 @@
       ],
       "box_type": 6
     }
-  ]
+  ],
+  "nav": {
+    "nodes": [
+      {
+        "id": "corner_0",
+        "pos": [
+          -35.5,
+          -24.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:red_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_1",
+        "pos": [
+          -35.5,
+          24.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:red_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_2",
+        "pos": [
+          -34.5,
+          -25.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "team:red_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_3",
+        "pos": [
+          -34.5,
+          25.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "team:red_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_4",
+        "pos": [
+          -33.5,
+          -4.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:red_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_5",
+        "pos": [
+          -33.5,
+          4.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:red_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_6",
+        "pos": [
+          -32.5,
+          -5.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "team:red_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_7",
+        "pos": [
+          -32.5,
+          5.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "team:red_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_8",
+        "pos": [
+          -23.5,
+          -5.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:north",
+          "team:red_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_9",
+        "pos": [
+          -23.5,
+          5.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:south",
+          "team:red_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_10",
+        "pos": [
+          -22.5,
+          -4.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:red_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_11",
+        "pos": [
+          -22.5,
+          4.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:red_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_12",
+        "pos": [
+          -14.5,
+          -21.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:red_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_13",
+        "pos": [
+          -14.5,
+          -14.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:red_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_14",
+        "pos": [
+          -13.5,
+          -22.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "team:red_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_15",
+        "pos": [
+          -13.5,
+          -13.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "team:red_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_16",
+        "pos": [
+          -7.5,
+          -6.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_17",
+        "pos": [
+          -7.5,
+          -6.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_18",
+        "pos": [
+          -7.5,
+          -2.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_19",
+        "pos": [
+          -7.5,
+          2.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_20",
+        "pos": [
+          -7.5,
+          6.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_21",
+        "pos": [
+          -7.5,
+          6.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_22",
+        "pos": [
+          -6.5,
+          -22.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_23",
+        "pos": [
+          -6.5,
+          -13.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_24",
+        "pos": [
+          -6.5,
+          -7.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_25",
+        "pos": [
+          -6.5,
+          -7.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_26",
+        "pos": [
+          -6.5,
+          -1.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_27",
+        "pos": [
+          -6.5,
+          1.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_28",
+        "pos": [
+          -6.5,
+          7.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_29",
+        "pos": [
+          -6.5,
+          7.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_30",
+        "pos": [
+          -5.5,
+          -21.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_31",
+        "pos": [
+          -5.5,
+          -14.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_32",
+        "pos": [
+          -2.5,
+          -11.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_33",
+        "pos": [
+          -2.5,
+          11.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_34",
+        "pos": [
+          -1.5,
+          -12.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_35",
+        "pos": [
+          -1.5,
+          -6.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_36",
+        "pos": [
+          -1.5,
+          -2.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_37",
+        "pos": [
+          -1.5,
+          2.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_38",
+        "pos": [
+          -1.5,
+          6.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_39",
+        "pos": [
+          -1.5,
+          12.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_40",
+        "pos": [
+          1.5,
+          -12.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_41",
+        "pos": [
+          1.5,
+          -6.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_42",
+        "pos": [
+          1.5,
+          -2.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_43",
+        "pos": [
+          1.5,
+          2.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_44",
+        "pos": [
+          1.5,
+          6.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_45",
+        "pos": [
+          1.5,
+          12.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_46",
+        "pos": [
+          2.5,
+          -11.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_47",
+        "pos": [
+          2.5,
+          11.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_48",
+        "pos": [
+          5.5,
+          14.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_49",
+        "pos": [
+          5.5,
+          21.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_50",
+        "pos": [
+          6.5,
+          -7.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_51",
+        "pos": [
+          6.5,
+          -7.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_52",
+        "pos": [
+          6.5,
+          -1.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_53",
+        "pos": [
+          6.5,
+          1.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_54",
+        "pos": [
+          6.5,
+          7.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_55",
+        "pos": [
+          6.5,
+          7.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:neutral_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_56",
+        "pos": [
+          6.5,
+          13.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_57",
+        "pos": [
+          6.5,
+          22.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_58",
+        "pos": [
+          7.5,
+          -6.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_59",
+        "pos": [
+          7.5,
+          -6.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_60",
+        "pos": [
+          7.5,
+          -2.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_61",
+        "pos": [
+          7.5,
+          2.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_62",
+        "pos": [
+          7.5,
+          6.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_63",
+        "pos": [
+          7.5,
+          6.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:neutral_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_64",
+        "pos": [
+          13.5,
+          13.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:north",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_65",
+        "pos": [
+          13.5,
+          22.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:south",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_66",
+        "pos": [
+          14.5,
+          14.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:blue_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_67",
+        "pos": [
+          14.5,
+          21.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:blue_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_68",
+        "pos": [
+          22.5,
+          -4.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:blue_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_69",
+        "pos": [
+          22.5,
+          4.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:east",
+          "team:blue_area"
+        ],
+        "facing": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_70",
+        "pos": [
+          23.5,
+          -5.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:north",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_71",
+        "pos": [
+          23.5,
+          5.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:south",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_72",
+        "pos": [
+          32.5,
+          -5.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:north",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_73",
+        "pos": [
+          32.5,
+          5.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:south",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_74",
+        "pos": [
+          33.5,
+          -4.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:blue_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_75",
+        "pos": [
+          33.5,
+          4.5,
+          1.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:blue_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_76",
+        "pos": [
+          34.5,
+          -25.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NE",
+          "cover",
+          "peek",
+          "side:north",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_77",
+        "pos": [
+          34.5,
+          25.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SE",
+          "cover",
+          "peek",
+          "side:south",
+          "team:blue_area"
+        ],
+        "facing": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_78",
+        "pos": [
+          35.5,
+          -24.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:SW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:blue_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "corner_79",
+        "pos": [
+          35.5,
+          24.5,
+          0.1
+        ],
+        "type": "cover",
+        "tags": [
+          "corner:NW",
+          "cover",
+          "peek",
+          "side:west",
+          "team:blue_area"
+        ],
+        "facing": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "radius": 0.6
+      },
+      {
+        "id": "nav_80",
+        "pos": [
+          -35.5,
+          -25.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SE",
+          "nav",
+          "team:red_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_81",
+        "pos": [
+          -35.5,
+          25.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NE",
+          "nav",
+          "team:red_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_82",
+        "pos": [
+          -33.5,
+          -5.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SE",
+          "nav",
+          "team:red_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_83",
+        "pos": [
+          -33.5,
+          5.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NE",
+          "nav",
+          "team:red_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_84",
+        "pos": [
+          -22.5,
+          -5.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SW",
+          "nav",
+          "team:red_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_85",
+        "pos": [
+          -22.5,
+          5.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NW",
+          "nav",
+          "team:red_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_86",
+        "pos": [
+          -14.5,
+          -22.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SE",
+          "nav",
+          "team:red_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_87",
+        "pos": [
+          -14.5,
+          -13.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NE",
+          "nav",
+          "team:red_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_88",
+        "pos": [
+          -7.5,
+          -1.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NE",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_89",
+        "pos": [
+          -7.5,
+          1.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SE",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_90",
+        "pos": [
+          -5.5,
+          -22.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SW",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_91",
+        "pos": [
+          -5.5,
+          -13.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NW",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_92",
+        "pos": [
+          -2.5,
+          -12.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SE",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_93",
+        "pos": [
+          -2.5,
+          12.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NE",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_94",
+        "pos": [
+          2.5,
+          -12.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SW",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_95",
+        "pos": [
+          2.5,
+          12.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NW",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_96",
+        "pos": [
+          5.5,
+          13.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SE",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_97",
+        "pos": [
+          5.5,
+          22.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NE",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_98",
+        "pos": [
+          7.5,
+          -1.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NW",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_99",
+        "pos": [
+          7.5,
+          1.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SW",
+          "nav",
+          "team:neutral_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_100",
+        "pos": [
+          14.5,
+          13.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SW",
+          "nav",
+          "team:blue_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_101",
+        "pos": [
+          14.5,
+          22.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NW",
+          "nav",
+          "team:blue_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_102",
+        "pos": [
+          22.5,
+          -5.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SE",
+          "nav",
+          "team:blue_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_103",
+        "pos": [
+          22.5,
+          5.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NE",
+          "nav",
+          "team:blue_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_104",
+        "pos": [
+          33.5,
+          -5.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SW",
+          "nav",
+          "team:blue_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_105",
+        "pos": [
+          33.5,
+          5.5,
+          1.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NW",
+          "nav",
+          "team:blue_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_106",
+        "pos": [
+          35.5,
+          -25.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:SW",
+          "nav",
+          "team:blue_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "nav_107",
+        "pos": [
+          35.5,
+          25.5,
+          0.1
+        ],
+        "type": "nav",
+        "tags": [
+          "corner:NW",
+          "nav",
+          "team:blue_area"
+        ],
+        "radius": 0.7
+      },
+      {
+        "id": "objective_red_base",
+        "pos": [
+          -38.5,
+          -0.5,
+          0.1
+        ],
+        "type": "objective",
+        "tags": [
+          "attack",
+          "base",
+          "defend",
+          "objective",
+          "red_base",
+          "team:red_area"
+        ],
+        "facing": [
+          1.0,
+          0.007,
+          0.0
+        ],
+        "radius": 1.5
+      },
+      {
+        "id": "objective_blue_base",
+        "pos": [
+          37.5,
+          -0.5,
+          0.1
+        ],
+        "type": "objective",
+        "tags": [
+          "attack",
+          "base",
+          "blue_base",
+          "defend",
+          "objective",
+          "team:blue_area"
+        ],
+        "facing": [
+          -1.0,
+          0.007,
+          0.0
+        ],
+        "radius": 1.5
+      },
+      {
+        "id": "objective_neutral_flag",
+        "pos": [
+          -0.5,
+          -0.5,
+          1.1
+        ],
+        "type": "objective",
+        "tags": [
+          "flag",
+          "neutral_flag",
+          "neutral_flag_stand",
+          "objective",
+          "team:neutral_area"
+        ],
+        "facing": [
+          0.707,
+          0.707,
+          0.0
+        ]
+      }
+    ],
+    "links": [
+      {
+        "from": "corner_0",
+        "to": "nav_80",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_1",
+        "to": "nav_81",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_2",
+        "to": "nav_80",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_3",
+        "to": "nav_81",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_4",
+        "to": "nav_82",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_5",
+        "to": "nav_83",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_6",
+        "to": "nav_82",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_7",
+        "to": "nav_83",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_8",
+        "to": "nav_84",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_9",
+        "to": "nav_85",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_10",
+        "to": "nav_84",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_11",
+        "to": "nav_85",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_12",
+        "to": "nav_86",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_13",
+        "to": "nav_87",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_14",
+        "to": "nav_86",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_15",
+        "to": "nav_87",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_18",
+        "to": "nav_88",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_19",
+        "to": "nav_89",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_22",
+        "to": "nav_90",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_23",
+        "to": "nav_91",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_26",
+        "to": "nav_88",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_27",
+        "to": "nav_89",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_30",
+        "to": "nav_90",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_31",
+        "to": "nav_91",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_32",
+        "to": "nav_92",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_33",
+        "to": "nav_93",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_34",
+        "to": "nav_92",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_36",
+        "to": "objective_neutral_flag",
+        "weight": 2.236
+      },
+      {
+        "from": "corner_39",
+        "to": "nav_93",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_40",
+        "to": "nav_94",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_42",
+        "to": "objective_neutral_flag",
+        "weight": 2.828
+      },
+      {
+        "from": "corner_45",
+        "to": "nav_95",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_46",
+        "to": "nav_94",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_47",
+        "to": "nav_95",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_48",
+        "to": "nav_96",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_49",
+        "to": "nav_97",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_52",
+        "to": "nav_98",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_53",
+        "to": "nav_99",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_56",
+        "to": "nav_96",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_57",
+        "to": "nav_97",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_60",
+        "to": "nav_98",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_61",
+        "to": "nav_99",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_64",
+        "to": "nav_100",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_65",
+        "to": "nav_101",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_66",
+        "to": "nav_100",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_67",
+        "to": "nav_101",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_68",
+        "to": "nav_102",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_69",
+        "to": "nav_103",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_70",
+        "to": "nav_102",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_71",
+        "to": "nav_103",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_72",
+        "to": "nav_104",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_73",
+        "to": "nav_105",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_74",
+        "to": "nav_104",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_75",
+        "to": "nav_105",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_76",
+        "to": "nav_106",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_77",
+        "to": "nav_107",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_78",
+        "to": "nav_106",
+        "weight": 1.0
+      },
+      {
+        "from": "corner_79",
+        "to": "nav_107",
+        "weight": 1.0
+      },
+      {
+        "from": "nav_80",
+        "to": "nav_81",
+        "weight": 51.0
+      },
+      {
+        "from": "nav_80",
+        "to": "nav_106",
+        "weight": 71.0
+      },
+      {
+        "from": "nav_80",
+        "to": "objective_red_base",
+        "weight": 25.179
+      },
+      {
+        "from": "nav_81",
+        "to": "nav_107",
+        "weight": 71.0
+      },
+      {
+        "from": "nav_81",
+        "to": "objective_red_base",
+        "weight": 26.173
+      },
+      {
+        "from": "nav_82",
+        "to": "nav_83",
+        "weight": 11.0
+      },
+      {
+        "from": "nav_82",
+        "to": "nav_84",
+        "weight": 11.0
+      },
+      {
+        "from": "nav_82",
+        "to": "nav_86",
+        "weight": 25.495
+      },
+      {
+        "from": "nav_82",
+        "to": "nav_87",
+        "weight": 20.616
+      },
+      {
+        "from": "nav_82",
+        "to": "nav_91",
+        "weight": 29.12
+      },
+      {
+        "from": "nav_82",
+        "to": "objective_red_base",
+        "weight": 7.141
+      },
+      {
+        "from": "nav_83",
+        "to": "nav_85",
+        "weight": 11.0
+      },
+      {
+        "from": "nav_83",
+        "to": "nav_96",
+        "weight": 39.812
+      },
+      {
+        "from": "nav_83",
+        "to": "nav_97",
+        "weight": 42.544
+      },
+      {
+        "from": "nav_83",
+        "to": "nav_100",
+        "weight": 48.662
+      },
+      {
+        "from": "nav_83",
+        "to": "objective_red_base",
+        "weight": 7.874
+      },
+      {
+        "from": "nav_84",
+        "to": "nav_85",
+        "weight": 11.0
+      },
+      {
+        "from": "nav_84",
+        "to": "nav_86",
+        "weight": 18.788
+      },
+      {
+        "from": "nav_84",
+        "to": "nav_87",
+        "weight": 11.314
+      },
+      {
+        "from": "nav_84",
+        "to": "nav_91",
+        "weight": 18.788
+      },
+      {
+        "from": "nav_84",
+        "to": "nav_97",
+        "weight": 39.598
+      },
+      {
+        "from": "nav_85",
+        "to": "nav_86",
+        "weight": 29.12
+      },
+      {
+        "from": "nav_85",
+        "to": "nav_87",
+        "weight": 20.616
+      },
+      {
+        "from": "nav_85",
+        "to": "nav_91",
+        "weight": 25.495
+      },
+      {
+        "from": "nav_85",
+        "to": "nav_96",
+        "weight": 29.12
+      },
+      {
+        "from": "nav_85",
+        "to": "nav_97",
+        "weight": 32.757
+      },
+      {
+        "from": "nav_85",
+        "to": "nav_100",
+        "weight": 37.855
+      },
+      {
+        "from": "nav_85",
+        "to": "objective_neutral_flag",
+        "weight": 22.804
+      },
+      {
+        "from": "nav_86",
+        "to": "nav_87",
+        "weight": 9.0
+      },
+      {
+        "from": "nav_86",
+        "to": "nav_90",
+        "weight": 9.0
+      },
+      {
+        "from": "nav_87",
+        "to": "nav_88",
+        "weight": 13.928
+      },
+      {
+        "from": "nav_87",
+        "to": "nav_89",
+        "weight": 16.583
+      },
+      {
+        "from": "nav_87",
+        "to": "nav_91",
+        "weight": 9.0
+      },
+      {
+        "from": "nav_87",
+        "to": "nav_102",
+        "weight": 37.855
+      },
+      {
+        "from": "nav_87",
+        "to": "nav_104",
+        "weight": 48.662
+      },
+      {
+        "from": "nav_88",
+        "to": "nav_89",
+        "weight": 3.0
+      },
+      {
+        "from": "nav_88",
+        "to": "objective_neutral_flag",
+        "weight": 7.141
+      },
+      {
+        "from": "nav_89",
+        "to": "objective_neutral_flag",
+        "weight": 7.348
+      },
+      {
+        "from": "nav_90",
+        "to": "nav_91",
+        "weight": 9.0
+      },
+      {
+        "from": "nav_90",
+        "to": "nav_102",
+        "weight": 32.757
+      },
+      {
+        "from": "nav_90",
+        "to": "nav_103",
+        "weight": 39.598
+      },
+      {
+        "from": "nav_90",
+        "to": "nav_104",
+        "weight": 42.544
+      },
+      {
+        "from": "nav_91",
+        "to": "nav_102",
+        "weight": 29.12
+      },
+      {
+        "from": "nav_91",
+        "to": "nav_104",
+        "weight": 39.812
+      },
+      {
+        "from": "nav_92",
+        "to": "nav_94",
+        "weight": 5.0
+      },
+      {
+        "from": "nav_93",
+        "to": "nav_95",
+        "weight": 5.0
+      },
+      {
+        "from": "nav_96",
+        "to": "nav_97",
+        "weight": 9.0
+      },
+      {
+        "from": "nav_96",
+        "to": "nav_100",
+        "weight": 9.0
+      },
+      {
+        "from": "nav_96",
+        "to": "nav_102",
+        "weight": 25.495
+      },
+      {
+        "from": "nav_96",
+        "to": "nav_103",
+        "weight": 18.788
+      },
+      {
+        "from": "nav_96",
+        "to": "nav_105",
+        "weight": 29.12
+      },
+      {
+        "from": "nav_97",
+        "to": "nav_101",
+        "weight": 9.0
+      },
+      {
+        "from": "nav_97",
+        "to": "objective_neutral_flag",
+        "weight": 23.77
+      },
+      {
+        "from": "nav_98",
+        "to": "nav_99",
+        "weight": 3.0
+      },
+      {
+        "from": "nav_98",
+        "to": "nav_100",
+        "weight": 16.583
+      },
+      {
+        "from": "nav_98",
+        "to": "objective_neutral_flag",
+        "weight": 8.124
+      },
+      {
+        "from": "nav_99",
+        "to": "nav_100",
+        "weight": 13.928
+      },
+      {
+        "from": "nav_99",
+        "to": "objective_neutral_flag",
+        "weight": 8.307
+      },
+      {
+        "from": "nav_100",
+        "to": "nav_101",
+        "weight": 9.0
+      },
+      {
+        "from": "nav_100",
+        "to": "nav_102",
+        "weight": 20.616
+      },
+      {
+        "from": "nav_100",
+        "to": "nav_103",
+        "weight": 11.314
+      },
+      {
+        "from": "nav_100",
+        "to": "nav_105",
+        "weight": 20.616
+      },
+      {
+        "from": "nav_101",
+        "to": "nav_102",
+        "weight": 29.12
+      },
+      {
+        "from": "nav_101",
+        "to": "nav_103",
+        "weight": 18.788
+      },
+      {
+        "from": "nav_101",
+        "to": "nav_105",
+        "weight": 25.495
+      },
+      {
+        "from": "nav_102",
+        "to": "nav_103",
+        "weight": 11.0
+      },
+      {
+        "from": "nav_102",
+        "to": "nav_104",
+        "weight": 11.0
+      },
+      {
+        "from": "nav_103",
+        "to": "nav_105",
+        "weight": 11.0
+      },
+      {
+        "from": "nav_103",
+        "to": "objective_neutral_flag",
+        "weight": 23.77
+      },
+      {
+        "from": "nav_104",
+        "to": "nav_105",
+        "weight": 11.0
+      },
+      {
+        "from": "nav_104",
+        "to": "objective_blue_base",
+        "weight": 6.481
+      },
+      {
+        "from": "nav_105",
+        "to": "objective_blue_base",
+        "weight": 7.28
+      },
+      {
+        "from": "nav_106",
+        "to": "nav_107",
+        "weight": 51.0
+      },
+      {
+        "from": "nav_106",
+        "to": "objective_blue_base",
+        "weight": 25.08
+      },
+      {
+        "from": "nav_107",
+        "to": "objective_blue_base",
+        "weight": 26.077
+      }
+    ]
+  }
 }

@@ -47,6 +47,7 @@ class NavBuilder:
         bounds: Sequence[float],
         *,
         link_radius: float = 18.0,
+        local_link_radius: Optional[float] = None,
         objectives: Optional[Dict[str, Sequence[float]]] = None,
     ) -> None:
         self.grid = grid
@@ -55,13 +56,22 @@ class NavBuilder:
         self.agent_radius = max(0.1, agent_radius)
         self.bounds_x = float(bounds[0]) if bounds else 0.0
         self.link_radius = max(4.0, link_radius)
+        if local_link_radius is None:
+            self.local_link_radius = min(self.link_radius, max(3.0, self.agent_radius * 6.0))
+        else:
+            self.local_link_radius = max(1.0, float(local_link_radius))
 
-        self.corner_offset = max(0.35, self.agent_radius * 0.8)
+        self.corner_offset = max(0.35, self.agent_radius)
         self.height_offset = max(0.1, self.agent_radius * 0.2)
+
+        self._collision_radius_grid = max(self.agent_radius, 0.5) / self.cube
+        self._collision_offsets = self._compute_collision_offsets(self._collision_radius_grid)
 
         self.nodes: List[SynthNode] = []
         self.links: List[SynthLink] = []
-        self._dedupe_keys: set[Tuple[int, int, int, int]] = set()
+        self._dedupe_keys: set[Tuple[int, int, int, int, Optional[str]]] = set()
+        self._corner_nav_nodes: Dict[Tuple[int, int, int, Optional[str]], SynthNode] = {}
+        self._node_seq = 0
 
         self.objective_points: Dict[str, Tuple[float, float, float]] = {}
         if objectives:
@@ -81,6 +91,7 @@ class NavBuilder:
     def build(self) -> None:
         walkable = self._collect_walkable_cells()
         self._emit_corner_nodes(walkable)
+        self._emit_corner_nav_nodes(walkable)
         self._emit_objective_nodes(walkable)
         self._connect_nodes()
 
@@ -103,14 +114,20 @@ class NavBuilder:
         for x in range(self.grid.size_x):
             for y in range(self.grid.size_y):
                 for z in range(1, self.grid.size_z):
-                    if not self.grid.is_air(x, y, z):
-                        continue
-                    if self.grid.is_air(x, y, z - 1):
-                        continue
-                    if z + 1 < self.grid.size_z and not self.grid.is_air(x, y, z + 1):
-                        continue
-                    walkable.append((x, y, z))
+                    if self._is_walkable_cell(x, y, z):
+                        walkable.append((x, y, z))
         return walkable
+
+    def _is_walkable_cell(self, x: int, y: int, z: int) -> bool:
+        if not (0 <= x < self.grid.size_x and 0 <= y < self.grid.size_y and 1 <= z < self.grid.size_z):
+            return False
+        if not self.grid.is_air(x, y, z):
+            return False
+        if self.grid.is_air(x, y, z - 1):
+            return False
+        if z + 1 < self.grid.size_z and not self.grid.is_air(x, y, z + 1):
+            return False
+        return True
 
     def _emit_corner_nodes(self, walkable: Iterable[Tuple[int, int, int]]) -> None:
         for x, y, z in walkable:
@@ -244,6 +261,11 @@ class NavBuilder:
     def _corner_open(self, x: int, y: int, z: int) -> bool:
         return all(not self._is_solid(x, y, z + dz) for dz in (0, 1))
 
+    def _next_node_id(self, prefix: str) -> str:
+        node_id = f"{prefix}_{self._node_seq}"
+        self._node_seq += 1
+        return node_id
+
     def _create_wall_node(self, x: int, y: int, z: int, dx: int, dy: int, corner_tag: Optional[str]) -> None:
         dir_idx = (dx + 1) * 3 + (dy + 1)
         key = (x, y, z, dir_idx, corner_tag)
@@ -258,7 +280,7 @@ class NavBuilder:
         tags = self._wall_tags(world_pos[0], dx, dy, corner_tag)
 
         node = SynthNode(
-            node_id=f"corner_{len(self.nodes)}",
+            node_id=self._next_node_id("corner"),
             pos=world_pos,
             kind="cover",
             tags=tags,
@@ -290,6 +312,59 @@ class NavBuilder:
         floor_plane = (self.origin[2] + z) * self.cube
         pos_z = floor_plane + self.height_offset
         return (pos_x, pos_y, pos_z)
+
+    def _emit_corner_nav_nodes(self, walkable: Iterable[Tuple[int, int, int]]) -> None:
+        walkable_cells = set(walkable)
+        corner_patterns = (
+            ("corner:SE", (1, 0), (0, 1), (1, 1)),
+            ("corner:NE", (1, 0), (0, -1), (1, -1)),
+            ("corner:SW", (-1, 0), (0, 1), (-1, 1)),
+            ("corner:NW", (-1, 0), (0, -1), (-1, -1)),
+        )
+
+        for x, y, z in walkable:
+            for corner_tag, (ax, ay), (bx, by), (dx, dy) in corner_patterns:
+                adj_a = (x + ax, y + ay, z)
+                adj_b = (x + bx, y + by, z)
+                diag = (x + dx, y + dy, z)
+
+                if not self._has_solid_column(diag[0], diag[1], diag[2]):
+                    continue
+                if self._has_solid_column(adj_a[0], adj_a[1], adj_a[2]):
+                    continue
+                if self._has_solid_column(adj_b[0], adj_b[1], adj_b[2]):
+                    continue
+                if adj_a not in walkable_cells or adj_b not in walkable_cells:
+                    continue
+
+                key = (x, y, z, corner_tag)
+                if key in self._corner_nav_nodes:
+                    continue
+
+                nav_pos = self._cell_world_position(x, y, z)
+                if self._point_in_wall(nav_pos):
+                    continue
+
+                tags = {"nav", self._team_tag(nav_pos[0]), corner_tag}
+                node = SynthNode(
+                    node_id=self._next_node_id("nav"),
+                    pos=nav_pos,
+                    kind="nav",
+                    tags=tuple(sorted(tags)),
+                    facing=None,
+                    radius=max(self.agent_radius + 0.2, 0.6),
+                )
+                self.nodes.append(node)
+                self._corner_nav_nodes[key] = node
+
+    def _has_solid_column(self, x: int, y: int, z: int) -> bool:
+        if not (0 <= x < self.grid.size_x and 0 <= y < self.grid.size_y):
+            return False
+        for dz in (0, 1, 2):
+            zz = z + dz
+            if 0 <= zz < self.grid.size_z and self._is_solid(x, y, zz):
+                return True
+        return False
 
     def _point_in_wall(self, world_pos: Tuple[float, float, float]) -> bool:
         gx, gy, gz = self._world_to_grid_float(world_pos)
@@ -337,8 +412,11 @@ class NavBuilder:
         for i, a in enumerate(self.nodes):
             for j in range(i + 1, len(self.nodes)):
                 b = self.nodes[j]
+                if a.kind == "cover" and b.kind == "cover":
+                    continue
                 dist = self._distance(a.pos, b.pos)
-                if dist > self.link_radius:
+                radius = self._connection_radius(a, b)
+                if dist > radius:
                     continue
                 if self._segment_intersects_solid(a.pos, b.pos):
                     continue
@@ -355,17 +433,56 @@ class NavBuilder:
         steps = max(abs(dx), abs(dy), abs(dz))
         steps = max(1, int(math.ceil(steps) * 6))
 
+        radius_grid = self._collision_radius_grid
+        neighbor_offsets = self._collision_offsets
+
         for step in range(1, steps):
             t = step / steps
             gx = sx + dx * t
             gy = sy + dy * t
             gz = sz + dz * t
-            ix = int(round(gx))
-            iy = int(round(gy))
-            iz = int(round(gz))
-            if self._is_solid(ix, iy, iz):
-                return True
+            level = max(0, int(math.ceil(gz)))
+
+            z_max = min(self.grid.size_z - 1, level + 2)
+
+            ix_center = int(round(gx))
+            iy_center = int(round(gy))
+            frac_x = gx - ix_center
+            frac_y = gy - iy_center
+
+            for dx_off, dy_off in neighbor_offsets:
+                ix = ix_center + dx_off
+                iy = iy_center + dy_off
+                if not (0 <= ix < self.grid.size_x and 0 <= iy < self.grid.size_y):
+                    continue
+                dist_x = abs(frac_x - dx_off) - 0.5
+                dist_y = abs(frac_y - dy_off) - 0.5
+                if dist_x > 0.0 or dist_y > 0.0:
+                    horizontal_dist = math.hypot(max(dist_x, 0.0), max(dist_y, 0.0))
+                    if horizontal_dist >= radius_grid:
+                        continue
+                for iz in range(level, z_max + 1):
+                    if self._is_solid(ix, iy, iz):
+                        return True
         return False
+
+    @staticmethod
+    def _compute_collision_offsets(radius_grid: float) -> List[Tuple[int, int]]:
+        max_offset = int(math.ceil(radius_grid + 1.0))
+        offsets: List[Tuple[int, int]] = []
+        limit = radius_grid + 1.0
+        limit_sq = limit * limit
+        for dx in range(-max_offset, max_offset + 1):
+            for dy in range(-max_offset, max_offset + 1):
+                if dx * dx + dy * dy <= limit_sq:
+                    offsets.append((dx, dy))
+        return offsets
+
+    @staticmethod
+    def _horizontal_distance_to_cell(gx: float, gy: float, ix: int, iy: int) -> float:
+        dx = max(0.0, abs(gx - ix) - 0.5)
+        dy = max(0.0, abs(gy - iy) - 0.5)
+        return math.hypot(dx, dy)
 
     def _world_to_grid_float(self, pos: Tuple[float, float, float]) -> Tuple[float, float, float]:
         x, y, z = pos
@@ -381,6 +498,16 @@ class NavBuilder:
         dy = a[1] - b[1]
         dz = a[2] - b[2]
         return math.sqrt(dx * dx + dy * dy + dz * dz)
+
+    def _connection_radius(self, a: SynthNode, b: SynthNode) -> float:
+        if a.kind == "nav" and b.kind == "nav":
+            return self.link_radius
+        if a.kind == "objective" or b.kind == "objective":
+            other = b if a.kind == "objective" else a
+            if other.kind == "nav":
+                return self.link_radius
+            return self.local_link_radius
+        return self.local_link_radius
 
 
 def render_topdown(
@@ -455,13 +582,17 @@ def render_topdown(
 
     # Draw nodes
     node_radius = max(4, scale // 2)
+    nav_radius = max(3, scale // 3)
     corner_colors = {
         "corner:NE": (120, 220, 120),
         "corner:SE": (240, 200, 120),
         "corner:SW": (220, 120, 120),
         "corner:NW": (120, 160, 240),
     }
-    for node in nodes:
+    others = [node for node in nodes if node.kind != "nav"]
+    nav_nodes = [node for node in nodes if node.kind == "nav"]
+
+    for node in others:
         px, py = world_to_pixel(node.pos)
         r = node_radius
         fill = None
@@ -477,6 +608,16 @@ def render_topdown(
             else:
                 fill = (200, 200, 200)
         draw.ellipse([px - r, py - r, px + r, py + r], fill=fill, outline=(0, 0, 0))
+
+    for node in nav_nodes:
+        px, py = world_to_pixel(node.pos)
+        r = nav_radius
+        fill = (250, 236, 120)
+        if "team:red_area" in node.tags:
+            fill = (248, 210, 110)
+        elif "team:blue_area" in node.tags:
+            fill = (140, 210, 250)
+        draw.ellipse([px - r, py - r, px + r, py + r], fill=fill, outline=(32, 32, 32))
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     img.save(output_path)
