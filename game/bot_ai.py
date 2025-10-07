@@ -1296,7 +1296,10 @@ class AStarBotBrain:
         if self._flag_interact_needed(me, gs):
             inputs["interact"] = True
 
-        if self._micro_state == "retreat" and self._micro_retreat_vec is not None:
+        if self._micro_state == "peek":
+            inputs["mx"] = 0.0
+            inputs["mz"] = 0.0
+        elif self._micro_state == "retreat" and self._micro_retreat_vec is not None:
             rx, ry = self._micro_retreat_vec
             inputs["mx"] = max(-1.0, min(1.0, rx))
             inputs["mz"] = max(-1.0, min(1.0, ry))

@@ -30,7 +30,12 @@ def _make_brain(node):
 
 
 def _make_context(brain, mapdata, me, enemies=(), now=5.0):
-    gs = SimpleNamespace(players={me.pid: SimpleNamespace(pid=me.pid, team=brain.team, x=me.x, y=me.y, z=me.z, alive=True)}, flags={})
+    players = {
+        me.pid: SimpleNamespace(pid=me.pid, team=brain.team, x=me.x, y=me.y, z=me.z, alive=True)
+    }
+    for enemy in enemies:
+        players[enemy.pid] = enemy
+    gs = SimpleNamespace(players=players, flags={})
     ctx = SimpleNamespace(
         brain=brain,
         me=me,
@@ -80,3 +85,21 @@ def test_micro_retreat_when_engaged():
     payload = brain.debug_payload(me, ctx.now).get("micro_state")
     assert payload["state"] == "retreat"
     assert payload["retreat_vec"] is not None
+
+
+def test_micro_peek_holds_position():
+    node = TacticalNode("anchor", (0.0, 0.0, 0.0), "cover", ("cover", "team:red_area"), (1.0, 0.0, 0.0), 0.6)
+    brain, mapdata = _make_brain(node)
+    brain.set_squad_role(SquadRole(name="anchor", target_node="anchor", priority=0.9), brain.nav_index)
+    brain.last_decision = BotDecision("hold_angle", 70.0, node.pos, metadata={"tactic": "hold"})
+    me = _make_bot()
+
+    enemy = SimpleNamespace(pid=9, team=1, x=4.0, y=0.0, z=0.0, alive=True)
+    ctx = _make_context(brain, mapdata, me, enemies=(enemy,))
+    brain._update_micro_state(ctx)
+
+    inputs = brain.decide(me, ctx.gs, mapdata)
+
+    assert brain._micro_state == "peek"
+    assert abs(inputs["mx"]) < 1e-6
+    assert abs(inputs["mz"]) < 1e-6
