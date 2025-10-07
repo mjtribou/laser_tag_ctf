@@ -9,9 +9,15 @@
     "respawn_seconds": 1,
     "flag_return_seconds": 10,
     "friendly_fire": false,
-    "bot_fill": true,
-    "bot_per_team_target": 3,
-    "bots_target_players": true
+    "bot": {
+      "fill": true,
+      "per_team_target": 16,
+      "target_players": true,
+      "turn_rates": {
+        "idle": 240.0,
+        "engaged": 420.0
+      }
+    }
   },
   "gameplay": {
     "run_speed": 7.0,

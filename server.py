@@ -549,10 +549,23 @@ class LaserTagServer:
         if is_bot:
             base_pos = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
             enemy_base = self.mapdata.blue_base if team == TEAM_RED else self.mapdata.red_base
-            # Use A* navigation brain for bots
             from game.bot_ai import AStarBotBrain
-            target_players = bool(self.cfg.get("server", {}).get("bots_target_players", True))
-            brain = AStarBotBrain(team, base_pos, enemy_base, target_players=target_players, nav_graph=self.nav_graph)
+
+            bot_cfg = self.cfg.get("server", {}).get("bot", {})
+            target_players = bool(bot_cfg.get("target_players", True))
+            turn_cfg = bot_cfg.get("turn_rates", {})
+            idle_turn = float(turn_cfg.get("idle", 240.0))
+            engaged_turn = float(turn_cfg.get("engaged", 420.0))
+
+            brain = AStarBotBrain(
+                team,
+                base_pos,
+                enemy_base,
+                target_players=target_players,
+                nav_graph=self.nav_graph,
+                idle_turn_rate_deg=idle_turn,
+                engaged_turn_rate_deg=engaged_turn,
+            )
             self.bot_brains[pid] = brain
 
         print(f"[join] pid={pid} name={name} team={'RED' if team==TEAM_RED else 'BLUE'}")
@@ -1573,9 +1586,10 @@ class LaserTagServer:
 
     # ---------- Main game loop ----------
     def _ensure_bot_fill(self):
-        if not bool(self.cfg["server"].get("bot_fill", True)):
+        bot_cfg = self.cfg.get("server", {}).get("bot", {})
+        if not bool(bot_cfg.get("fill", True)):
             return
-        per_team = int(self.cfg["server"].get("bot_per_team_target", 5))
+        per_team = int(bot_cfg.get("per_team_target", 5))
         rc = sum(1 for p in self.gs.players.values() if p.team == TEAM_RED and p.pid not in self.clients)
         bc = sum(1 for p in self.gs.players.values() if p.team == TEAM_BLUE and p.pid not in self.clients)
         while rc < per_team:

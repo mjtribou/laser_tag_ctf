@@ -57,7 +57,7 @@ class SimpleBotBrain:
         if abs(dx)+abs(dy) > 0.5:
             desired_yaw = math.atan2(-dx, dy)
             curr = getattr(me, "yaw_rad", 0.0)
-            me.yaw_rad = _turn_toward(curr, desired_yaw, rate_rad_per_s=math.radians(120), dt=0.016)
+            me.yaw_rad = _turn_toward(curr, desired_yaw, rate_rad_per_s=math.radians(220), dt=0.016)
             inputs["yaw"] = math.degrees(me.yaw_rad)
 
         inputs["mx"] = 0.0
@@ -354,6 +354,8 @@ class AStarBotBrain:
         target_players: bool = True,
         nav_graph: Optional[TacticalGraph] = None,
         radio: BotRadio = RADIO,
+        idle_turn_rate_deg: float = 240.0,
+        engaged_turn_rate_deg: float = 420.0,
     ) -> None:
         self.team = team
         self.base_pos = base_pos
@@ -379,6 +381,10 @@ class AStarBotBrain:
         self._debug_plan: Dict[str, Any] = {}
         self._squad_role: Optional[SquadRole] = None
         self._squad_target_pos: Optional[Tuple[float, float, float]] = None
+        idle_deg = max(30.0, float(idle_turn_rate_deg))
+        engaged_deg = max(idle_deg, float(engaged_turn_rate_deg))
+        self._turn_rate_idle = math.radians(idle_deg)
+        self._turn_rate_engaged = math.radians(engaged_deg)
 
         # Cached geometry for cheap line-of-sight checks
         self._los_cache_key: Optional[Tuple[int, int, float]] = None
@@ -1168,12 +1174,12 @@ class AStarBotBrain:
                 prechecked_line=True,
             )
         aim_point = None
-        turn_rate = math.radians(150)
+        turn_rate = self._turn_rate_idle
         if enemy is not None:
             dist = math.hypot(enemy.x - me.x, enemy.y - me.y)
             inputs["fire"] = dist <= 40.0
             aim_point = (enemy.x, enemy.y)
-            turn_rate = math.radians(260)
+            turn_rate = self._turn_rate_engaged
         if aim_point is None and decision.focus is not None:
             fx, fy, _ = decision.focus
             aim_point = (fx, fy)
