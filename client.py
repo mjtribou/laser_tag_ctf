@@ -872,6 +872,7 @@ class GameApp(ShowBase):
         self._bot_debug_root.hide()
         self._bot_debug_labels: Dict[int, Tuple[NodePath, TextNode]] = {}
         self._bot_debug_paths: Dict[int, NodePath] = {}
+        self._bot_role_markers: Dict[int, NodePath] = {}
         self.accept("f9", self._toggle_bot_debug_overlay)
 
         # key state
@@ -1304,7 +1305,14 @@ class GameApp(ShowBase):
                 name_markup = "\x01tr\x01" + name + "\x02"
             elif team == TEAM_BLUE:
                 name_markup = "\x01tb\x01" + name + "\x02"
+            decision_meta = entry.get("decision_meta") if isinstance(entry.get("decision_meta"), dict) else {}
+            tactic = decision_meta.get("tactic")
+            role = entry.get("squad_role", {}).get("role") if isinstance(entry.get("squad_role"), dict) else None
             line = f"{name_markup} #{pid}: {behavior}"
+            if tactic:
+                line += f" <{tactic}>"
+            if role:
+                line += f" [{role}]"
             if score is not None:
                 line += f" (s={score})"
             if carrying:
@@ -1331,6 +1339,10 @@ class GameApp(ShowBase):
             if node and not node.isEmpty():
                 node.removeNode()
         self._bot_debug_paths.clear()
+        for node in list(self._bot_role_markers.values()):
+            if node and not node.isEmpty():
+                node.removeNode()
+        self._bot_role_markers.clear()
         if self._bot_debug_root and not self._bot_debug_root.isEmpty():
             self._bot_debug_root.hide()
 
@@ -1421,9 +1433,13 @@ class GameApp(ShowBase):
             existing_path = self._bot_debug_paths.pop(pid, None)
             if existing_path and not existing_path.isEmpty():
                 existing_path.removeNode()
+            existing_role_marker = self._bot_role_markers.pop(pid, None)
+            if existing_role_marker and not existing_role_marker.isEmpty():
+                existing_role_marker.removeNode()
 
             path_nodes = entry.get("path_nodes") or []
             target = entry.get("target")
+            role_state = entry.get("squad_role") if isinstance(entry.get("squad_role"), dict) else None
             points: List[Vec3] = [Vec3(px, py, pz)]
             for waypoint in path_nodes:
                 try:
@@ -1455,6 +1471,17 @@ class GameApp(ShowBase):
                 path_np.setTransparency(TransparencyAttrib.M_alpha)
                 path_np.setLightOff(1)
                 self._bot_debug_paths[pid] = path_np
+            if role_state and role_state.get("target_pos"):
+                tx, ty, tz = role_state["target_pos"]
+                marker = LineSegs()
+                marker.setColor(0.95, 0.75, 0.2, 0.9)
+                marker.setThickness(3.0)
+                marker.drawTo(Vec3(tx, ty, tz + 0.2))
+                marker.drawTo(Vec3(tx, ty, tz + 2.0))
+                marker_np = self._bot_debug_root.attachNewNode(marker.create())
+                marker_np.setDepthWrite(False)
+                marker_np.setLightOff(1)
+                self._bot_role_markers[pid] = marker_np
 
             active.add(pid)
 
@@ -1469,6 +1496,11 @@ class GameApp(ShowBase):
                 if node and not node.isEmpty():
                     node.removeNode()
                 self._bot_debug_paths.pop(pid, None)
+        for pid, node in list(self._bot_role_markers.items()):
+            if pid not in active:
+                if node and not node.isEmpty():
+                    node.removeNode()
+                self._bot_role_markers.pop(pid, None)
 
         if active:
             self._bot_debug_root.show()
