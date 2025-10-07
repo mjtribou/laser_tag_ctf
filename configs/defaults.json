@@ -21,8 +21,6 @@
   },
   "gameplay": {
     "run_speed": 7.0,
-    "walk_speed": 5.0,
-    "crouch_speed": 3.0,
     "acceleration_mps2": 60.0,
     "decel_release_mps2": 45.0,
     "decel_counter_mps2": 60.0,
@@ -38,7 +36,6 @@
     "recoil_decay_hz": 7.5,
     "base_spread_deg": 0.15,
     "spread_move_factor": 0.7,
-    "spread_crouch_bonus": -0.08,
     "laser_range_m": 200.0,
     "grenade_max_charge": 1.5,
     "grenade_throw_speed": 30.0,
@@ -95,10 +92,6 @@
     "killfeed_max": 6,
     "killfeed_ttl": 4.0,
     "killfeed_font_scale": 0.045
-  },
-  "audio": {
-    "volume": 0.7,
-    "muted": false
   },
   "controls": {
     "mouse_sensitivity": 0.12,
