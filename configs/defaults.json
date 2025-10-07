@@ -11,10 +11,10 @@
     "friendly_fire": false,
     "bot": {
       "fill": true,
-      "per_team_target": 16,
+      "per_team_target": 5,
       "target_players": true,
       "turn_rates": {
-        "idle": 240.0,
+        "idle": 420.0,
         "engaged": 420.0
       }
     }

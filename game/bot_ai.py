@@ -829,6 +829,7 @@ class AStarBotBrain:
             self._beh_escort_call,
             self._beh_retrieve_flag,
             self._beh_defend_base,
+            self._beh_hold_angle,
             self._beh_flank_enemy,
             self._beh_push_lane,
             self._beh_hunt_enemy,
@@ -928,6 +929,39 @@ class AStarBotBrain:
             "cover_node": getattr(cover, "node_id", None) if cover else None,
         }
         return BotDecision("defend_base", score, target, crouch=True, focus=(threat.x, threat.y, threat.z), metadata=metadata)
+
+    def _beh_hold_angle(self, ctx: BotContext) -> Optional[BotDecision]:
+        if self._squad_role is None or self._squad_target_pos is None:
+            return None
+        if self._squad_role.name.lower() != "anchor":
+            return None
+
+        index = ctx.nav_index
+        node = None
+        if index is not None and getattr(self._squad_role, "target_node", None):
+            node = index.nodes.get(self._squad_role.target_node)
+        if node is None and index is not None:
+            node = self._closest_node(ctx, (self._squad_target_pos[0], self._squad_target_pos[1]), required_tags=("cover",))
+        hold_pos = self._squad_target_pos
+        if node is not None:
+            hold_pos = node.pos
+        dist = math.hypot(hold_pos[0] - ctx.me.x, hold_pos[1] - ctx.me.y)
+
+        focus = None
+        if node is not None and getattr(node, "facing", None):
+            fx, fy, fz = node.facing
+            focus = (
+                hold_pos[0] + fx * 10.0,
+                hold_pos[1] + fy * 10.0,
+                hold_pos[2] + fz * 10.0,
+            )
+        metadata = {
+            "tactic": "hold",
+            "role": self._squad_role.name,
+            "target_node": getattr(node, "node_id", None),
+        }
+        score = 60.0 + min(12.0, self._squad_role.priority * 20.0) - min(10.0, dist * 2.0)
+        return BotDecision("hold_angle", score, hold_pos, crouch=True, walk=False, focus=focus, metadata=metadata)
 
     def _beh_flank_enemy(self, ctx: BotContext) -> Optional[BotDecision]:
         index = ctx.nav_index

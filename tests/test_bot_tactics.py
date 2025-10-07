@@ -130,6 +130,30 @@ def test_role_bias_prefers_flank_behavior():
     assert decision.metadata["tactic"].startswith("flank")
 
 
+def test_hold_angle_behavior_for_anchor_role():
+    nodes = {
+        "anchor": TacticalNode("anchor", (-2.0, 0.0, 0.0), "cover", ("cover", "team:red_area"), (1.0, 0.0, 0.0), 0.6),
+    }
+    links: Tuple[TacticalLink, ...] = ()
+    brain, mapdata = _build_brain_with_graph(nodes, links)
+    brain._ensure_nav_index(mapdata, brain.nav_graph)
+    role = SquadRole(name="anchor", target_node="anchor", priority=0.75)
+    brain.set_squad_role(role, brain.nav_index)
+
+    me = SimpleNamespace(pid=7, team=brain.team, x=-2.5, y=0.1, z=0.0, carrying_flag=None)
+    ctx = _make_context(brain, mapdata, me, visible_enemies=())
+
+    decision = brain._beh_hold_angle(ctx)
+
+    assert decision is not None
+    assert decision.name == "hold_angle"
+    assert decision.metadata["tactic"] == "hold"
+    assert decision.crouch is True
+    assert decision.walk is False
+    assert decision.target == nodes["anchor"].pos
+    assert decision.focus is not None
+
+
 def test_debug_payload_includes_plan_and_metadata():
     nodes = {
         "start": TacticalNode("start", (-2.0, 0.0, 0.0), "cover", ("cover", "team:red_area"), None, 0.6),
