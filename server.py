@@ -13,6 +13,7 @@ from game.constants import (
 from game.map_gen import load_from_file as load_map_from_file
 from game.transform import wrap_pi, deg_to_rad, rad_to_deg, forward_vector, local_move_delta, heading_forward_xy
 from game.bot_ai import SimpleBotBrain
+from game.bot_coordination import SquadCoordinator
 from game.ecs import (
     World as ECSWorld,
     CharacterBody,
@@ -127,6 +128,10 @@ class LaserTagServer:
         self.clients: Dict[int, asyncio.StreamWriter] = {}
         self.inputs: Dict[int, Dict[str, Any]] = {}
         self.bot_brains: Dict[int, SimpleBotBrain] = {}
+        self.squad_coordinators: Dict[int, SquadCoordinator] = {
+            TEAM_RED: SquadCoordinator(team=TEAM_RED),
+            TEAM_BLUE: SquadCoordinator(team=TEAM_BLUE),
+        }
         self.recent_beams: List[Dict[str, Any]] = []
         self._state_history: List[Tuple[float, Dict[int, Tuple[float,float,float]]]] = []
         self.killfeed: List[Dict[str, Any]] = []
@@ -560,6 +565,8 @@ class LaserTagServer:
             del self.inputs[pid]
         if pid in self.bot_brains:
             del self.bot_brains[pid]
+        for coord in self.squad_coordinators.values():
+            coord.roles.pop(pid, None)
         self.bot_debug.pop(pid, None)
         self._remove_character(pid)
         entity = self.pid_to_entity.pop(pid, None)
@@ -1582,6 +1589,41 @@ class LaserTagServer:
         THINK_HZ = 10.0
         THINK_DT = 1.0 / THINK_HZ
         tnow = now()
+
+        team_to_bots: Dict[int, List[int]] = {}
+        for pid, brain in self.bot_brains.items():
+            player = self.gs.players.get(pid)
+            if player is None:
+                continue
+            team_to_bots.setdefault(player.team, []).append(pid)
+
+        for team, bots in team_to_bots.items():
+            coord = self.squad_coordinators.get(team)
+            if coord is None:
+                continue
+            nav_index = None
+            for bot_id in bots:
+                brain = self.bot_brains.get(bot_id)
+                if brain is None:
+                    continue
+                try:
+                    brain._ensure_nav_index(self.mapdata, brain.nav_graph)
+                except Exception:
+                    pass
+                if getattr(brain, "nav_index", None) is not None:
+                    nav_index = brain.nav_index
+                    break
+            enemy_base = self.mapdata.blue_base if team == TEAM_RED else self.mapdata.red_base
+            friendly_base = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
+            coord.assign_roles(bots, nav_index=nav_index, enemy_base=enemy_base, friendly_base=friendly_base)
+            for bot_id in bots:
+                brain = self.bot_brains.get(bot_id)
+                if brain is None:
+                    continue
+                role = coord.get_role(bot_id)
+                nav_idx = getattr(brain, "nav_index", None)
+                if hasattr(brain, "set_squad_role"):
+                    brain.set_squad_role(role, nav_idx)
 
         for idx, (pid, brain) in enumerate(list(self.bot_brains.items())):
             # Initialize per-brain cadence with deterministic jitter by pid

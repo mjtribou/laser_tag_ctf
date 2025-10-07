@@ -8,6 +8,7 @@ from dataclasses import dataclass
 from typing import Any, Dict, Tuple, List, Optional, NamedTuple, Iterable, Sequence
 
 from .constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL, PLAYER_HEIGHT
+from .bot_coordination import SquadRole
 from . import nav_grid as ng
 from world.map_adapter import TacticalGraph, TacticalNode, TacticalLink
 
@@ -376,6 +377,8 @@ class AStarBotBrain:
         self.last_decision: Optional[BotDecision] = None
         self._voxel_lookup = None
         self._debug_plan: Dict[str, Any] = {}
+        self._squad_role: Optional[SquadRole] = None
+        self._squad_target_pos: Optional[Tuple[float, float, float]] = None
 
         # Cached geometry for cheap line-of-sight checks
         self._los_cache_key: Optional[Tuple[int, int, float]] = None
@@ -395,6 +398,15 @@ class AStarBotBrain:
         if graph and getattr(graph, "nodes", None):
             self.nav_graph = graph
             self.nav_index = NavGraphIndex.from_graph(graph)
+
+    def set_squad_role(self, role: Optional[SquadRole], nav_index: Optional[NavGraphIndex]) -> None:
+        self._squad_role = role
+        self._squad_target_pos = None
+        if role is None or nav_index is None:
+            return
+        node = nav_index.nodes.get(role.target_node) if role.target_node else None
+        if node is not None:
+            self._squad_target_pos = node.pos
 
     def _team_area_tag(self, team: int) -> str:
         if team == TEAM_RED:
@@ -820,8 +832,32 @@ class AStarBotBrain:
             if decision is not None:
                 candidates.append(decision)
 
+        if not candidates and self._squad_role and self._squad_target_pos is not None:
+            meta = {
+                "tactic": "hold_role",
+                "role": self._squad_role.name,
+                "target_node": getattr(self._squad_role, "target_node", None),
+            }
+            score = 45.0 + float(getattr(self._squad_role, "priority", 0.0) * 20.0)
+            return BotDecision("role_objective", score, self._squad_target_pos, walk=True, metadata=meta)
+
         if not candidates:
             return BotDecision("idle_patrol", 0.0, self.enemy_base)
+
+        if self._squad_role is not None:
+            preferences = {
+                "anchor": {"defend": 12.0, "return_flag": 8.0, "hold_role": 6.0},
+                "entry": {"push": 10.0, "attack": 6.0},
+                "flank": {"flank": 12.0, "hunt": 5.0, "hunt_memory": 4.0},
+            }
+            role_name = self._squad_role.name.lower()
+            pref = preferences.get(role_name, {})
+            for decision in candidates:
+                tactic = decision.metadata.get("tactic") if decision.metadata else None
+                if tactic in pref:
+                    decision.score += pref[tactic]
+                else:
+                    decision.score -= min(6.0, self._squad_role.priority * 4.0) if decision.metadata else 0.0
 
         candidates.sort(key=lambda d: d.score, reverse=True)
         return candidates[0]
@@ -1205,6 +1241,15 @@ class AStarBotBrain:
                 "used_graph": bool(self._debug_plan.get("used_graph", False)),
                 "decision": self._debug_plan.get("decision"),
             }
+        if self._squad_role is not None:
+            role_payload = {
+                "role": self._squad_role.name,
+                "priority": round(float(self._squad_role.priority), 2),
+                "target_node": getattr(self._squad_role, "target_node", None),
+            }
+            if self._squad_target_pos is not None:
+                role_payload["target_pos"] = tuple(round(v, 2) for v in self._squad_target_pos)
+            payload["squad_role"] = role_payload
         return payload
     def nodes_with_any_tags(self, tags: Iterable[str], area: Optional[str] = None) -> List[TacticalNode]:
         index = self.nav_index

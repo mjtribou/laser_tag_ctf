@@ -2828,6 +2828,11 @@
       },
       {
         "from": "nav_73",
+        "to": "nav_96",
+        "weight": 53.009
+      },
+      {
+        "from": "nav_73",
         "to": "objective_red_base",
         "weight": 33.734
       },
@@ -2860,6 +2865,11 @@
         "from": "nav_74",
         "to": "nav_83",
         "weight": 22.023
+      },
+      {
+        "from": "nav_74",
+        "to": "nav_97",
+        "weight": 53.009
       },
       {
         "from": "nav_74",
@@ -2932,6 +2942,21 @@
         "weight": 36.401
       },
       {
+        "from": "nav_76",
+        "to": "nav_96",
+        "weight": 43.174
+      },
+      {
+        "from": "nav_76",
+        "to": "nav_98",
+        "weight": 51.971
+      },
+      {
+        "from": "nav_76",
+        "to": "nav_101",
+        "weight": 53.759
+      },
+      {
         "from": "nav_77",
         "to": "nav_78",
         "weight": 15.0
@@ -2967,6 +2992,31 @@
         "weight": 35.693
       },
       {
+        "from": "nav_77",
+        "to": "nav_96",
+        "weight": 42.012
+      },
+      {
+        "from": "nav_77",
+        "to": "nav_98",
+        "weight": 51.01
+      },
+      {
+        "from": "nav_77",
+        "to": "nav_100",
+        "weight": 53.759
+      },
+      {
+        "from": "nav_77",
+        "to": "nav_101",
+        "weight": 53.0
+      },
+      {
+        "from": "nav_77",
+        "to": "objective_red_base",
+        "weight": 44.553
+      },
+      {
         "from": "nav_78",
         "to": "nav_79",
         "weight": 9.0
@@ -2995,6 +3045,31 @@
         "from": "nav_78",
         "to": "nav_95",
         "weight": 35.693
+      },
+      {
+        "from": "nav_78",
+        "to": "nav_97",
+        "weight": 42.012
+      },
+      {
+        "from": "nav_78",
+        "to": "nav_99",
+        "weight": 51.01
+      },
+      {
+        "from": "nav_78",
+        "to": "nav_102",
+        "weight": 53.0
+      },
+      {
+        "from": "nav_78",
+        "to": "nav_103",
+        "weight": 53.759
+      },
+      {
+        "from": "nav_78",
+        "to": "objective_red_base",
+        "weight": 44.721
       },
       {
         "from": "nav_79",
@@ -3037,6 +3112,21 @@
         "weight": 36.401
       },
       {
+        "from": "nav_79",
+        "to": "nav_97",
+        "weight": 43.174
+      },
+      {
+        "from": "nav_79",
+        "to": "nav_99",
+        "weight": 51.971
+      },
+      {
+        "from": "nav_79",
+        "to": "nav_102",
+        "weight": 53.759
+      },
+      {
         "from": "nav_80",
         "to": "nav_81",
         "weight": 13.0
@@ -3062,6 +3152,26 @@
         "weight": 40.0
       },
       {
+        "from": "nav_80",
+        "to": "nav_98",
+        "weight": 49.0
+      },
+      {
+        "from": "nav_80",
+        "to": "nav_100",
+        "weight": 51.971
+      },
+      {
+        "from": "nav_80",
+        "to": "nav_101",
+        "weight": 51.01
+      },
+      {
+        "from": "nav_80",
+        "to": "objective_red_base",
+        "weight": 46.39
+      },
+      {
         "from": "nav_81",
         "to": "nav_83",
         "weight": 9.0
@@ -3080,6 +3190,26 @@
         "from": "nav_81",
         "to": "nav_97",
         "weight": 40.0
+      },
+      {
+        "from": "nav_81",
+        "to": "nav_99",
+        "weight": 49.0
+      },
+      {
+        "from": "nav_81",
+        "to": "nav_102",
+        "weight": 51.01
+      },
+      {
+        "from": "nav_81",
+        "to": "nav_103",
+        "weight": 51.971
+      },
+      {
+        "from": "nav_81",
+        "to": "objective_red_base",
+        "weight": 46.53
       },
       {
         "from": "nav_82",
@@ -3137,6 +3267,21 @@
         "weight": 40.0
       },
       {
+        "from": "nav_82",
+        "to": "nav_100",
+        "weight": 43.174
+      },
+      {
+        "from": "nav_82",
+        "to": "nav_101",
+        "weight": 42.012
+      },
+      {
+        "from": "nav_82",
+        "to": "nav_105",
+        "weight": 53.009
+      },
+      {
         "from": "nav_83",
         "to": "nav_84",
         "weight": 22.136
@@ -3185,6 +3330,21 @@
         "from": "nav_83",
         "to": "nav_99",
         "weight": 40.0
+      },
+      {
+        "from": "nav_83",
+        "to": "nav_102",
+        "weight": 42.012
+      },
+      {
+        "from": "nav_83",
+        "to": "nav_103",
+        "weight": 43.174
+      },
+      {
+        "from": "nav_83",
+        "to": "nav_106",
+        "weight": 53.009
       },
       {
         "from": "nav_84",
@@ -3717,6 +3877,11 @@
         "weight": 19.105
       },
       {
+        "from": "nav_98",
+        "to": "objective_blue_base",
+        "weight": 45.398
+      },
+      {
         "from": "nav_99",
         "to": "nav_100",
         "weight": 23.087
@@ -3745,6 +3910,11 @@
         "from": "nav_99",
         "to": "nav_106",
         "weight": 13.038
+      },
+      {
+        "from": "nav_99",
+        "to": "objective_blue_base",
+        "weight": 45.541
       },
       {
         "from": "nav_100",
@@ -3787,6 +3957,11 @@
         "weight": 18.601
       },
       {
+        "from": "nav_101",
+        "to": "objective_blue_base",
+        "weight": 43.566
+      },
+      {
         "from": "nav_102",
         "to": "nav_103",
         "weight": 9.0
@@ -3800,6 +3975,11 @@
         "from": "nav_102",
         "to": "nav_106",
         "weight": 11.0
+      },
+      {
+        "from": "nav_102",
+        "to": "objective_blue_base",
+        "weight": 43.738
       },
       {
         "from": "nav_103",

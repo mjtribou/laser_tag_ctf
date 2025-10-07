@@ -1,7 +1,15 @@
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Tuple
 
+import sys
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 from game.bot_ai import AStarBotBrain, BotContext, BotDecision
+from game.bot_coordination import SquadRole
 from game.constants import TEAM_RED, TEAM_BLUE
 from world.map_adapter import TacticalGraph, TacticalLink, TacticalNode
 
@@ -26,6 +34,8 @@ def _build_brain_with_graph(nodes, links, team=TEAM_RED):
 
 
 def _make_context(brain, mapdata, me, visible_enemies=()):
+    if not hasattr(me, "team"):
+        setattr(me, "team", brain.team)
     gs = SimpleNamespace(
         players={me.pid: SimpleNamespace(pid=me.pid, team=brain.team, x=me.x, y=me.y, z=me.z, alive=True)},
         flags={}
@@ -90,6 +100,34 @@ def test_push_behavior_advances_through_neutral_area():
     assert decision.name == "push_lane"
     assert decision.metadata["target_node"] == "neutral_far"
     assert decision.metadata["tactic"] == "push"
+
+
+def test_role_bias_prefers_flank_behavior():
+    nodes = {
+        "start": TacticalNode("start", (-6.0, 0.0, 0.0), "cover", ("cover", "team:red_area"), None, 0.6),
+        "enemy_left": TacticalNode("enemy_left", (9.0, -6.0, 0.0), "cover", ("cover", "team:blue_area"), None, 0.6),
+        "enemy_right": TacticalNode("enemy_right", (9.0, 6.0, 0.0), "cover", ("cover", "team:blue_area"), None, 0.6),
+        "neutral": TacticalNode("neutral", (0.0, 0.0, 0.0), "cover", ("cover", "team:neutral_area"), None, 0.6),
+    }
+    links = (
+        TacticalLink("start", "neutral", 6.0, True),
+        TacticalLink("neutral", "enemy_left", 11.0, True),
+        TacticalLink("neutral", "enemy_right", 11.0, True),
+    )
+    brain, mapdata = _build_brain_with_graph(nodes, links)
+
+    # ensure nav index ready
+    brain._ensure_nav_index(mapdata, brain.nav_graph)
+    role = SquadRole(name="flank", target_node="enemy_right", priority=0.9)
+    brain.set_squad_role(role, brain.nav_index)
+
+    me = SimpleNamespace(pid=5, team=brain.team, x=-6.0, y=0.0, z=0.0, carrying_flag=None)
+    enemy = SimpleNamespace(pid=6, team=TEAM_BLUE, x=8.0, y=-5.0, z=0.0, alive=True)
+    ctx = _make_context(brain, mapdata, me, visible_enemies=(enemy,))
+
+    decision = brain._evaluate_behaviors(ctx)
+
+    assert decision.metadata["tactic"].startswith("flank")
 
 
 def test_debug_payload_includes_plan_and_metadata():

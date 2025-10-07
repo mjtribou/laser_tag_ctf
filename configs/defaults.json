@@ -25,12 +25,8 @@
     "air_decel_counter_mps2": 12.0,
     "jump_speed": 5.0,
     "gravity": 9.81,
-    "player_height": 2.0,
-    "player_radius": 0.5,
-    "arena_size_m": [
-      280.0,
-      100.0
-    ],
+    "player_height": 1.8,
+    "player_radius": 0.4,
     "rapid_fire_rate_hz": 10.0,
     "recoil_per_shot_deg": -0.2,
     "recoil_decay_hz": 7.5,
