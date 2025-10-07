@@ -7,7 +7,7 @@ from collections import defaultdict
 from dataclasses import dataclass
 from typing import Any, Dict, Tuple, List, Optional, NamedTuple, Iterable, Sequence
 
-from .constants import TEAM_RED, TEAM_BLUE, PLAYER_HEIGHT
+from .constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL, PLAYER_HEIGHT
 from . import nav_grid as ng
 from world.map_adapter import TacticalGraph, TacticalNode, TacticalLink
 
@@ -329,6 +329,7 @@ class BotDecision:
     walk: bool = False
     broadcast: Optional[BotIntent] = None
     focus: Optional[Tuple[float, float, float]] = None
+    metadata: Optional[Dict[str, Any]] = None
 
 
 def _nav_key(mapdata, cell, agent_radius):
@@ -374,6 +375,7 @@ class AStarBotBrain:
         self._last_progress_dist: float = float("inf")
         self.last_decision: Optional[BotDecision] = None
         self._voxel_lookup = None
+        self._debug_plan: Dict[str, Any] = {}
 
         # Cached geometry for cheap line-of-sight checks
         self._los_cache_key: Optional[Tuple[int, int, float]] = None
@@ -393,6 +395,19 @@ class AStarBotBrain:
         if graph and getattr(graph, "nodes", None):
             self.nav_graph = graph
             self.nav_index = NavGraphIndex.from_graph(graph)
+
+    def _team_area_tag(self, team: int) -> str:
+        if team == TEAM_RED:
+            return "team:red_area"
+        if team == TEAM_BLUE:
+            return "team:blue_area"
+        return "team:neutral_area"
+
+    def _enemy_team(self) -> int:
+        return TEAM_BLUE if self.team == TEAM_RED else TEAM_RED
+
+    def _forward_sign(self) -> float:
+        return 1.0 if self.enemy_base[0] >= self.base_pos[0] else -1.0
 
     # --- Nav helpers -----------------------------------------------------
     def _ensure_nav(self, mapdata):
@@ -592,6 +607,12 @@ class AStarBotBrain:
         self._last_progress_t = now_t
         self._last_progress_dist = float("inf")
         self._next_plan_t = now_t + random.uniform(1.0, 2.0)
+        self._debug_plan = {
+            "goal": (round(goal_xy[0], 3), round(goal_xy[1], 3)),
+            "path": [(round(px, 3), round(py, 3)) for px, py in self._path],
+            "used_graph": bool(graph_path),
+            "decision": getattr(self.last_decision, "name", None),
+        }
 
     def _plan_nav_graph_path(self, mapdata, me_xy: Tuple[float, float], goal_xy: Tuple[float, float]) -> List[Tuple[float, float]]:
         index = self.nav_index
@@ -790,6 +811,8 @@ class AStarBotBrain:
             self._beh_escort_call,
             self._beh_retrieve_flag,
             self._beh_defend_base,
+            self._beh_flank_enemy,
+            self._beh_push_lane,
             self._beh_hunt_enemy,
             self._beh_attack_enemy_base,
         ):
@@ -807,7 +830,8 @@ class AStarBotBrain:
         if ctx.me.carrying_flag is None:
             return None
         intent = BotIntent("escort_me", ctx.me.pid, (ctx.me.x, ctx.me.y, ctx.me.z), ctx.now + 2.5)
-        return BotDecision("return_flag", 100.0, ctx.base_pos, broadcast=intent)
+        metadata = {"tactic": "return_flag"}
+        return BotDecision("return_flag", 100.0, ctx.base_pos, broadcast=intent, metadata=metadata)
 
     def _beh_escort_call(self, ctx: BotContext) -> Optional[BotDecision]:
         intents = self.radio.listen(ctx.team, ctx.now)
@@ -823,7 +847,8 @@ class AStarBotBrain:
         if best is None:
             return None
         score = max(60.0 - best_dist, 15.0)
-        return BotDecision("escort_request", score, best.position, walk=False)
+        metadata = {"tactic": "escort", "origin_pid": best.origin_pid}
+        return BotDecision("escort_request", score, best.position, walk=False, metadata=metadata)
 
     def _beh_retrieve_flag(self, ctx: BotContext) -> Optional[BotDecision]:
         enemy_flag_team = TEAM_RED if ctx.team == TEAM_BLUE else TEAM_BLUE
@@ -836,7 +861,8 @@ class AStarBotBrain:
             return None
         score = 55.0
         target = (enemy_flag.x, enemy_flag.y, enemy_flag.z)
-        return BotDecision("retrieve_flag", score, target)
+        metadata = {"tactic": "retrieve_flag", "flag_team": enemy_flag.team}
+        return BotDecision("retrieve_flag", score, target, metadata=metadata)
 
     def _beh_defend_base(self, ctx: BotContext) -> Optional[BotDecision]:
         threat = None
@@ -854,7 +880,106 @@ class AStarBotBrain:
         cover = self._select_cover_for_threat(ctx, threat)
         target = cover.pos if cover else ctx.base_pos
         score = 70.0 - min(threat_dist, 25.0)
-        return BotDecision("defend_base", score, target, crouch=True, focus=(threat.x, threat.y, threat.z))
+        metadata = {
+            "tactic": "defend",
+            "threat_pid": getattr(threat, "pid", None),
+            "cover_node": getattr(cover, "node_id", None) if cover else None,
+        }
+        return BotDecision("defend_base", score, target, crouch=True, focus=(threat.x, threat.y, threat.z), metadata=metadata)
+
+    def _beh_flank_enemy(self, ctx: BotContext) -> Optional[BotDecision]:
+        index = ctx.nav_index
+        if index is None:
+            return None
+
+        enemy_area = self._team_area_tag(self._enemy_team())
+        flank_nodes = index.nodes_with_tags(["cover"], area=enemy_area)
+        if not flank_nodes:
+            return None
+
+        enemy_samples: List[Tuple[float, float]] = []
+        for enemy in ctx.visible_enemies:
+            if getattr(enemy, "alive", True):
+                enemy_samples.append((float(enemy.x), float(enemy.y)))
+        memory = self._last_known_enemy(ctx.now)
+        if not enemy_samples and memory is not None:
+            pos, _age, _pid = memory
+            enemy_samples.append((float(pos[0]), float(pos[1])))
+
+        if enemy_samples:
+            mean_enemy_y = sum(p[1] for p in enemy_samples) / len(enemy_samples)
+        else:
+            mean_enemy_y = self.enemy_base[1]
+
+        enemy_offset = mean_enemy_y - self.enemy_base[1]
+        forward_sign = self._forward_sign()
+
+        best = None
+        best_value = -float("inf")
+        for node in flank_nodes:
+            nx, ny, nz = node.pos
+            lateral = ny - self.enemy_base[1]
+            forward_progress = forward_sign * (nx - ctx.me.x)
+            side_bonus = -lateral * enemy_offset if enemy_offset else abs(lateral)
+            value = abs(lateral) * 0.9 + side_bonus * 0.6 + max(0.0, forward_progress) * 0.25
+            if value > best_value:
+                best_value = value
+                best = node
+
+        if best is None:
+            return None
+
+        target = best.pos
+        dist = math.hypot(target[0] - ctx.me.x, target[1] - ctx.me.y)
+        base_score = 62.0 - min(dist * 0.35, 20.0) + min(8.0, best_value)
+        metadata = {
+            "tactic": "flank",
+            "target_node": best.node_id,
+            "area": enemy_area,
+            "lateral_offset": round(best.pos[1] - self.enemy_base[1], 3),
+            "enemy_mean_y": round(mean_enemy_y, 3),
+        }
+        return BotDecision("flank_enemy", base_score, target, walk=True, metadata=metadata)
+
+    def _beh_push_lane(self, ctx: BotContext) -> Optional[BotDecision]:
+        index = ctx.nav_index
+        if index is None:
+            return None
+
+        neutral_tag = "team:neutral_area"
+        forward_sign = self._forward_sign()
+        neutral_nodes = index.nodes_with_tags(["cover"], area=neutral_tag)
+        if not neutral_nodes:
+            neutral_nodes = index.nodes_with_tags(["nav"], area=neutral_tag)
+        if not neutral_nodes:
+            return None
+
+        best = None
+        best_progress = -float("inf")
+        for node in neutral_nodes:
+            nx, ny, nz = node.pos
+            progress = forward_sign * (nx - ctx.me.x)
+            if progress < -1.0:
+                continue
+            lateral = abs(ny - ctx.me.y)
+            value = progress - lateral * 0.15
+            if value > best_progress:
+                best_progress = value
+                best = node
+
+        if best is None:
+            return None
+
+        target = best.pos
+        dist = math.hypot(target[0] - ctx.me.x, target[1] - ctx.me.y)
+        score = 58.0 + min(12.0, best_progress * 0.6) - min(12.0, dist * 0.3)
+        metadata = {
+            "tactic": "push",
+            "target_node": best.node_id,
+            "area": neutral_tag,
+            "progress": round(best_progress, 3),
+        }
+        return BotDecision("push_lane", score, target, walk=False, metadata=metadata)
 
     def _beh_hunt_enemy(self, ctx: BotContext) -> Optional[BotDecision]:
         if ctx.visible_enemies:
@@ -872,7 +997,8 @@ class AStarBotBrain:
         if enemy is not None:
             score = 35.0
             target = (enemy.x, enemy.y, enemy.z)
-            return BotDecision("hunt_enemy", score, target, focus=(enemy.x, enemy.y, enemy.z))
+            metadata = {"tactic": "hunt", "target_pid": getattr(enemy, "pid", None)}
+            return BotDecision("hunt_enemy", score, target, focus=(enemy.x, enemy.y, enemy.z), metadata=metadata)
 
         memory = self._last_known_enemy(ctx.now)
         if memory is None:
@@ -881,12 +1007,18 @@ class AStarBotBrain:
         freshness = max(0.0, 1.0 - (age / _ENEMY_MEMORY_TTL))
         score = 20.0 + 10.0 * freshness
         target = (pos[0], pos[1], pos[2])
-        return BotDecision("hunt_enemy", score, target, focus=(pos[0], pos[1], pos[2]))
+        metadata = {"tactic": "hunt_memory", "age": round(age, 2)}
+        return BotDecision("hunt_enemy", score, target, focus=(pos[0], pos[1], pos[2]), metadata=metadata)
 
     def _beh_attack_enemy_base(self, ctx: BotContext) -> BotDecision:
         node = self._closest_node(ctx, (ctx.enemy_base[0], ctx.enemy_base[1]), required_tags=("attack",))
         target = node.pos if node else ctx.enemy_base
-        return BotDecision("attack_enemy_base", 20.0, target)
+        metadata = {
+            "tactic": "attack",
+            "target_node": getattr(node, "node_id", None) if node else None,
+            "area": self._team_area_tag(self._enemy_team()),
+        }
+        return BotDecision("attack_enemy_base", 20.0, target, metadata=metadata)
 
     def _closest_node(self, ctx: BotContext, ref_xy: Tuple[float, float], required_tags: Tuple[str, ...]) -> Optional[TacticalNode]:
         ref_pos = (ref_xy[0], ref_xy[1], 0.0)
@@ -1055,6 +1187,8 @@ class AStarBotBrain:
                     "target": tuple(round(v, 2) for v in self.last_decision.target),
                 }
             )
+            if self.last_decision.metadata:
+                payload["decision_meta"] = self.last_decision.metadata
         remaining_path: List[Tuple[float, float]] = []
         if self._path and self._path_i < len(self._path):
             tail = self._path[self._path_i : self._path_i + 6]
@@ -1064,6 +1198,13 @@ class AStarBotBrain:
         current_target = self._current_target()
         if current_target is not None:
             payload["current_target"] = (round(current_target[0], 2), round(current_target[1], 2))
+        if self._debug_plan:
+            payload["plan"] = {
+                "goal": list(self._debug_plan.get("goal", ())),
+                "path": [list(p) for p in self._debug_plan.get("path", [])],
+                "used_graph": bool(self._debug_plan.get("used_graph", False)),
+                "decision": self._debug_plan.get("decision"),
+            }
         return payload
     def nodes_with_any_tags(self, tags: Iterable[str], area: Optional[str] = None) -> List[TacticalNode]:
         index = self.nav_index

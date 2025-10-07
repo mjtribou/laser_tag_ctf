@@ -173,7 +173,7 @@ class CombatSystem(System):
         gameplay_cfg: Dict[str, float],
         server_cfg: Dict[str, float],
         bullet_world: BulletWorld,
-        voxel_query: Optional["VoxelQuery"] = None,
+        voxel_query: Optional[VoxelQuery] = None,
         now_fn = time.time,
     ) -> None:
         super().__init__(world)
