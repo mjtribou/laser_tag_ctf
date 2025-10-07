@@ -142,6 +142,7 @@ def test_hold_angle_behavior_for_anchor_role():
 
     me = SimpleNamespace(pid=7, team=brain.team, x=-2.5, y=0.1, z=0.0, carrying_flag=None)
     ctx = _make_context(brain, mapdata, me, visible_enemies=())
+    ctx.now = 10.0
 
     decision = brain._beh_hold_angle(ctx)
 

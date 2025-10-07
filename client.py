@@ -1308,11 +1308,14 @@ class GameApp(ShowBase):
             decision_meta = entry.get("decision_meta") if isinstance(entry.get("decision_meta"), dict) else {}
             tactic = decision_meta.get("tactic")
             role = entry.get("squad_role", {}).get("role") if isinstance(entry.get("squad_role"), dict) else None
+            micro = entry.get("micro_state", {}).get("state") if isinstance(entry.get("micro_state"), dict) else None
             line = f"{name_markup} #{pid}: {behavior}"
             if tactic:
                 line += f" <{tactic}>"
             if role:
                 line += f" [{role}]"
+            if micro:
+                line += f" {{{micro}}}"
             if score is not None:
                 line += f" (s={score})"
             if carrying:

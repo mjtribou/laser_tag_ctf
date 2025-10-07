@@ -385,6 +385,10 @@ class AStarBotBrain:
         engaged_deg = max(idle_deg, float(engaged_turn_rate_deg))
         self._turn_rate_idle = math.radians(idle_deg)
         self._turn_rate_engaged = math.radians(engaged_deg)
+        self._micro_state: str = ""
+        self._micro_target: Optional[Tuple[float, float]] = None
+        self._micro_retreat_vec: Optional[Tuple[float, float]] = None
+        self._suppression_timer: float = 0.0
 
         # Cached geometry for cheap line-of-sight checks
         self._los_cache_key: Optional[Tuple[int, int, float]] = None
@@ -1086,6 +1090,49 @@ class AStarBotBrain:
         metadata = {"tactic": "hunt_memory", "age": round(age, 2)}
         return BotDecision("hunt_enemy", score, target, focus=(pos[0], pos[1], pos[2]), metadata=metadata)
 
+    def _update_micro_state(self, ctx: BotContext) -> None:
+        enemy = None
+        if ctx.visible_enemies:
+            enemy = min(ctx.visible_enemies, key=lambda e: math.hypot(e.x - ctx.me.x, e.y - ctx.me.y))
+
+        suppressed = ctx.now < self._suppression_timer
+        if suppressed and enemy is not None:
+            dx = ctx.me.x - enemy.x
+            dy = ctx.me.y - enemy.y
+            length = math.hypot(dx, dy) or 1.0
+            self._micro_state = "retreat"
+            self._micro_retreat_vec = (dx / length, dy / length)
+            self._micro_target = None
+            return
+
+        self._micro_retreat_vec = None
+
+        if enemy is not None:
+            tactic = None
+            if self.last_decision and self.last_decision.metadata:
+                tactic = self.last_decision.metadata.get("tactic")
+            if tactic in {"defend", "hold", "hold_role"}:
+                self._micro_state = "peek"
+                self._micro_target = (float(enemy.x), float(enemy.y))
+            else:
+                self._micro_state = "fight"
+                self._micro_target = None
+            return
+
+        if self.last_decision and self.last_decision.metadata and self.last_decision.metadata.get("tactic") == "hold":
+            self._micro_state = "hold"
+            if self._squad_target_pos is not None:
+                self._micro_target = (self._squad_target_pos[0], self._squad_target_pos[1])
+            else:
+                self._micro_target = None
+            return
+
+        self._micro_state = ""
+        self._micro_target = None
+
+    def mark_suppressed(self, now_ts: float, duration: float = 0.8) -> None:
+        self._suppression_timer = max(self._suppression_timer, now_ts + max(0.1, duration))
+
     def _beh_attack_enemy_base(self, ctx: BotContext) -> BotDecision:
         node = self._closest_node(ctx, (ctx.enemy_base[0], ctx.enemy_base[1]), required_tags=("attack",))
         target = node.pos if node else ctx.enemy_base
@@ -1161,6 +1208,7 @@ class AStarBotBrain:
             now=now,
             visible_enemies=visible,
         )
+        self._update_micro_state(ctx)
 
         decision = self._evaluate_behaviors(ctx)
         self.last_decision = decision
@@ -1214,6 +1262,10 @@ class AStarBotBrain:
             inputs["fire"] = dist <= 40.0
             aim_point = (enemy.x, enemy.y)
             turn_rate = self._turn_rate_engaged
+        elif self._micro_state == "peek" and self._micro_target:
+            inputs["crouch"] = False
+            aim_point = (self._micro_target[0], self._micro_target[1])
+            turn_rate = self._turn_rate_engaged
         if aim_point is None and decision.focus is not None:
             fx, fy, _ = decision.focus
             aim_point = (fx, fy)
@@ -1243,6 +1295,13 @@ class AStarBotBrain:
 
         if self._flag_interact_needed(me, gs):
             inputs["interact"] = True
+
+        if self._micro_state == "retreat" and self._micro_retreat_vec is not None:
+            rx, ry = self._micro_retreat_vec
+            inputs["mx"] = max(-1.0, min(1.0, rx))
+            inputs["mz"] = max(-1.0, min(1.0, ry))
+            inputs["crouch"] = True
+            inputs["fire"] = False
 
         return inputs
 
@@ -1290,6 +1349,13 @@ class AStarBotBrain:
             if self._squad_target_pos is not None:
                 role_payload["target_pos"] = tuple(round(v, 2) for v in self._squad_target_pos)
             payload["squad_role"] = role_payload
+        if self._micro_state:
+            payload["micro_state"] = {
+                "state": self._micro_state,
+                "target": list(self._micro_target) if self._micro_target else None,
+                "retreat_vec": list(self._micro_retreat_vec) if self._micro_retreat_vec else None,
+                "suppressed_until": round(self._suppression_timer, 2),
+            }
         return payload
     def nodes_with_any_tags(self, tags: Iterable[str], area: Optional[str] = None) -> List[TacticalNode]:
         index = self.nav_index
