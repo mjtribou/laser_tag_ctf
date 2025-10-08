@@ -1,6 +1,6 @@
 # server.py — Authoritative server with Bullet physics (players, block-built world, obstacles),
 # Bullet ray tests for lasers, safe-spawn, auto-unstick, and shared solid collide-mask fix.
-import asyncio, json, math, time, random, argparse, signal
+import asyncio, json, math, time, random, argparse, signal, os
 from typing import Dict, Any, List, Tuple, Optional, Set
 from bisect import bisect_right
 
@@ -461,6 +461,31 @@ class LaserTagServer:
                 if not self._point_inside_any_block(x, y, z, margin=0.05):
                     return (x, y, z)
         return (bx, by, 1.5)
+
+    def get_server_stats(self) -> Dict[str, Any]:
+        humans = sum(1 for pid, view in self.player_views.items() if (pid in self.clients) and not view.is_bot)
+        bots = sum(1 for view in self.player_views.values() if view.is_bot)
+        total = humans + bots
+        map_name = os.path.splitext(os.path.basename(self.map_file))[0]
+        return {
+            "name": self.cfg.get("server", {}).get("name", "Server"),
+            "map": map_name,
+            "mode": "CTF",
+            "players": humans,
+            "players_total": total,
+            "max_players": int(self.cfg.get("server", {}).get("max_players", MAX_PLAYERS)),
+            "bots": bots,
+            "spectators": len(self.spectator_clients),
+            "uptime_seconds": max(0.0, now() - self.start_time),
+            "team_scores": {
+                "red": self.team_captures.get(TEAM_RED, 0),
+                "blue": self.team_captures.get(TEAM_BLUE, 0),
+            },
+            "match_over": bool(self.match_over),
+        }
+
+    def get_discovery_info(self) -> Dict[str, Any]:
+        return {"stats": self.get_server_stats()}
 
     def _init_flag_entities(self) -> None:
         self.flag_entities.clear()
@@ -1501,7 +1526,18 @@ class LaserTagServer:
     async def handle_client(self, reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
         addr = writer.get_extra_info("peername")
         hello = await read_json(reader)
-        if hello.get("type") != "hello":
+        msg_type = hello.get("type")
+        if msg_type == "stats":
+            stats = self.get_server_stats()
+            await send_json(writer, {"type": "stats", **stats})
+            try:
+                writer.close()
+                await writer.wait_closed()
+            except Exception:
+                pass
+            return
+
+        if msg_type != "hello":
             writer.close()
             await writer.wait_closed()
             return
@@ -1770,7 +1806,7 @@ async def main_async(args):
                 pass  # e.g., Windows
 
     disc_task  = asyncio.create_task(lan_discovery_server(
-        cfg["server"]["name"], cfg["server"]["port"], cfg["server"]["lan_discovery_port"]), name="discovery")
+        cfg["server"]["name"], cfg["server"]["port"], cfg["server"]["lan_discovery_port"], info_provider=server.get_discovery_info), name="discovery")
     bcast_task = asyncio.create_task(server._broadcast_loop(), name="broadcast")
     run_task   = asyncio.create_task(server.run(), name="game_loop")
 

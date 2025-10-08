@@ -60,16 +60,27 @@ async def lan_discovery_broadcast(port: int, timeout: float = 1.0):
     await receive_replies()
     return servers
 
-async def lan_discovery_server(name: str, port: int, discovery_port: int):
-    """UDP task that replies to LAN discovery pings using asyncio DatagramProtocol."""
+async def lan_discovery_server(name: str, port: int, discovery_port: int, *, info_provider=None):
+    """UDP task that replies to LAN discovery pings using asyncio DatagramProtocol.
+
+    Args:
+        name: Human-readable server name advertised to clients.
+        port: TCP gameplay port for clients to connect to.
+        discovery_port: UDP port used for LAN broadcasts.
+        info_provider: Optional zero-argument callable returning a dict of
+            additional metadata (e.g., server stats) to include with each
+            discovery reply. The callable is invoked on the event-loop thread,
+            so it should avoid slow/blocking work.
+    """
     import asyncio, json
     from asyncio import DatagramProtocol
 
     class DiscoveryProtocol(DatagramProtocol):
-        def __init__(self, name: str, tcp_port: int):
+        def __init__(self, name: str, tcp_port: int, info_provider=None):
             self.name = name
             self.tcp_port = tcp_port
             self.transport = None
+            self.info_provider = info_provider
 
         def connection_made(self, transport):
             self.transport = transport
@@ -88,9 +99,15 @@ async def lan_discovery_server(name: str, port: int, discovery_port: int):
                 if msg.get("magic") != DISCOVERY_MAGIC:
                     return
                 reply_port = int(msg.get("reply_port", addr[1]))
-                reply = json.dumps(
-                    {"magic": DISCOVERY_MAGIC, "name": self.name, "tcp_port": self.tcp_port}
-                ).encode("utf-8")
+                payload = {"magic": DISCOVERY_MAGIC, "name": self.name, "tcp_port": self.tcp_port}
+                if self.info_provider is not None:
+                    try:
+                        extra = self.info_provider()
+                    except Exception:
+                        extra = None
+                    if isinstance(extra, dict):
+                        payload.update(extra)
+                reply = json.dumps(payload).encode("utf-8")
                 # Unicast reply back to the requester’s indicated port
                 self.transport.sendto(reply, (addr[0], reply_port))
             except Exception:
@@ -108,7 +125,7 @@ async def lan_discovery_server(name: str, port: int, discovery_port: int):
     loop = asyncio.get_running_loop()
     # Bind to 0.0.0.0 on discovery_port
     transport, protocol = await loop.create_datagram_endpoint(
-        lambda: DiscoveryProtocol(name, port),
+        lambda: DiscoveryProtocol(name, port, info_provider),
         local_addr=("0.0.0.0", discovery_port),
         allow_broadcast=True,
     )

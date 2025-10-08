@@ -67,7 +67,7 @@ from panda3d.core import GeomNode, GeomVertexReader, GeomVertexWriter, GeomTrian
 from panda3d.core import loadPrcFileData
 
 from common.net import send_json, read_json, lan_discovery_broadcast
-from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL, PLAYER_HEIGHT
+from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL, PLAYER_HEIGHT, MAX_PLAYERS
 from scoreboard import Scoreboard
 from game.map_gen import load_from_file as load_map_from_file
 from engine.config import get as engine_config_get
@@ -395,6 +395,9 @@ def apply_prc_from_settings(settings: Dict[str, Any]):
             loadPrcFileData("client-audio", f"audio-device {dev}")
     except Exception:
         pass
+
+
+KNOWN_SERVERS_FILE = os.path.join("configs", "known_servers.json")
 
 
 class AsyncRunner:
@@ -2545,6 +2548,413 @@ def _save_client_state(path: str, state: Dict[str, Any]):
         print(f"[settings] failed to save client state: {e}")
 
 
+def _run_async(coro_factory):
+    """Run an async coroutine factory, tolerating existing event loops."""
+    try:
+        return asyncio.run(coro_factory())
+    except RuntimeError:
+        loop = asyncio.new_event_loop()
+        try:
+            asyncio.set_event_loop(loop)
+            return loop.run_until_complete(coro_factory())
+        finally:
+            asyncio.set_event_loop(None)
+            loop.close()
+
+
+def _load_known_servers(default_port: int, path: str = KNOWN_SERVERS_FILE) -> List[Dict[str, Any]]:
+    try:
+        with open(path, 'r') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        return []
+    except Exception as exc:
+        print(f"[servers] failed to read {path}: {exc}")
+        return []
+    if isinstance(data, dict):
+        data = data.get('servers', [])
+    if not isinstance(data, list):
+        return []
+    out: List[Dict[str, Any]] = []
+    for raw in data:
+        if not isinstance(raw, dict):
+            continue
+        host = str(raw.get('host', '')).strip()
+        if not host:
+            continue
+        port_val = raw.get('port', default_port)
+        try:
+            port = int(port_val)
+        except Exception:
+            port = default_port
+        entry = {'host': host, 'port': port}
+        label = raw.get('label') or raw.get('name')
+        if isinstance(label, str):
+            label = label.strip()
+            if label:
+                entry['label'] = label
+        out.append(entry)
+    return out
+
+
+def _save_known_servers(entries: List[Dict[str, Any]], path: str = KNOWN_SERVERS_FILE) -> None:
+    payload: List[Dict[str, Any]] = []
+    for item in entries:
+        host = str(item.get('host', '')).strip()
+        if not host:
+            continue
+        try:
+            port = int(item.get('port'))
+        except Exception:
+            continue
+        rec: Dict[str, Any] = {'host': host, 'port': port}
+        label = item.get('label')
+        if isinstance(label, str) and label.strip():
+            rec['label'] = label.strip()
+        payload.append(rec)
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, 'w') as f:
+            json.dump(payload, f, indent=2)
+    except Exception as exc:
+        print(f"[servers] failed to save {path}: {exc}")
+
+
+async def _async_query_server_stats(host: str, port: int, timeout: float) -> Dict[str, Any]:
+    reader, writer = await asyncio.wait_for(asyncio.open_connection(host, port), timeout)
+    try:
+        await send_json(writer, {'type': 'stats'})
+        reply = await asyncio.wait_for(read_json(reader), timeout)
+        return reply
+    finally:
+        try:
+            writer.close()
+            await writer.wait_closed()
+        except Exception:
+            pass
+
+
+def _query_server_stats(host: str, port: int, timeout: float = 1.0) -> Optional[Dict[str, Any]]:
+    try:
+        return _run_async(lambda: _async_query_server_stats(host, port, timeout))
+    except Exception:
+        return None
+
+
+def _make_base_entry(host: str, port: int, max_players: int) -> Dict[str, Any]:
+    return {
+        'host': host,
+        'port': int(port),
+        'name': '',
+        'map': '',
+        'mode': '',
+        'players': 0,
+        'players_total': 0,
+        'max_players': max_players,
+        'bots': 0,
+        'spectators': 0,
+        'online': False,
+        'from_known': False,
+        'from_discovery': False,
+        'stats': {},
+        'label': None,
+    }
+
+
+def _gather_server_entries(
+    cfg: Dict[str, Any],
+    known_servers: List[Dict[str, Any]],
+    discovery_timeout: float = 1.0,
+) -> List[Dict[str, Any]]:
+    server_cfg = cfg.get('server', {}) if isinstance(cfg, dict) else {}
+    default_port = int(server_cfg.get('port', 50007))
+    max_players = int(server_cfg.get('max_players', MAX_PLAYERS))
+    lan_port = int(server_cfg.get('lan_discovery_port', 50000))
+
+    entries: Dict[Tuple[str, int], Dict[str, Any]] = {}
+    try:
+        discovered = _run_async(lambda: lan_discovery_broadcast(lan_port, timeout=discovery_timeout))
+    except Exception as exc:
+        print(f"[discovery] browser failed: {exc}")
+        discovered = []
+    if not isinstance(discovered, list):
+        discovered = []
+
+    for record in discovered:
+        if not isinstance(record, dict):
+            continue
+        host = record.get('addr')
+        if not host:
+            continue
+        try:
+            port = int(record.get('tcp_port', default_port))
+        except Exception:
+            port = default_port
+        key = (host, port)
+        entry = entries.get(key)
+        if entry is None:
+            entry = _make_base_entry(host, port, max_players)
+            entries[key] = entry
+        entry['from_discovery'] = True
+        entry['online'] = True
+        entry['name'] = entry.get('name') or record.get('name') or host
+        stats = record.get('stats')
+        if isinstance(stats, dict):
+            entry['stats'] = stats
+
+    for raw in known_servers:
+        if not isinstance(raw, dict):
+            continue
+        host = str(raw.get('host', '')).strip()
+        if not host:
+            continue
+        try:
+            port = int(raw.get('port', default_port))
+        except Exception:
+            port = default_port
+        key = (host, port)
+        entry = entries.get(key)
+        if entry is None:
+            entry = _make_base_entry(host, port, max_players)
+            entries[key] = entry
+        entry['from_known'] = True
+        label = raw.get('label')
+        if isinstance(label, str) and label.strip():
+            entry['label'] = label.strip()
+        if not entry['online']:
+            stats = _query_server_stats(host, port, timeout=discovery_timeout)
+            if isinstance(stats, dict) and stats:
+                entry['stats'] = stats
+                entry['online'] = True
+        stats = entry.get('stats') if isinstance(entry.get('stats'), dict) else {}
+        if not entry.get('name'):
+            entry['name'] = stats.get('name') or entry.get('label') or host
+
+    results: List[Dict[str, Any]] = []
+    for entry in entries.values():
+        stats = entry.get('stats') if isinstance(entry.get('stats'), dict) else {}
+        entry['stats'] = stats
+        entry['players'] = int(stats.get('players', entry['players']) or 0)
+        total = stats.get('players_total', entry['players_total'])
+        entry['players_total'] = int(total or entry['players'])
+        entry['max_players'] = int(stats.get('max_players', entry['max_players']) or entry['max_players'])
+        entry['bots'] = int(stats.get('bots', entry['bots']) or 0)
+        entry['spectators'] = int(stats.get('spectators', entry['spectators']) or 0)
+        entry['map'] = stats.get('map') or entry.get('map') or '?'
+        entry['mode'] = stats.get('mode') or entry.get('mode') or ''
+        entry['uptime_seconds'] = float(stats.get('uptime_seconds', entry.get('uptime_seconds', 0.0)) or 0.0)
+        entry['name'] = str(entry.get('name') or entry.get('label') or entry['host'])
+        if entry['from_known'] and entry['from_discovery']:
+            entry['source'] = 'Saved+LAN'
+        elif entry['from_known']:
+            entry['source'] = 'Saved'
+        elif entry['from_discovery']:
+            entry['source'] = 'LAN'
+        else:
+            entry['source'] = ''
+        entry['manual'] = bool(entry['from_known'] and not entry['from_discovery'])
+        results.append(entry)
+
+    results.sort(key=lambda e: (not e['online'], e['name'].lower()))
+    return results
+
+
+class ServerBrowserUI:
+    def __init__(self, cfg: Dict[str, Any], settings: Optional[Dict[str, Any]] = None):
+        self.cfg = cfg
+        self.settings = settings or {}
+        server_cfg = cfg.get('server', {}) if isinstance(cfg, dict) else {}
+        self.default_port = int(server_cfg.get('port', 50007))
+        disc_cfg = ((self.settings.get('network', {}) or {}).get('discovery', {})) if isinstance(self.settings, dict) else {}
+        try:
+            timeout_candidate = float(disc_cfg.get('ui_timeout_s', 0.0) or 0.0)
+        except Exception:
+            timeout_candidate = 0.0
+        if timeout_candidate <= 0.0:
+            try:
+                timeout_candidate = float(disc_cfg.get('retry_ms', 1000)) / 1000.0
+            except Exception:
+                timeout_candidate = 1.0
+        self.discovery_timeout = max(0.5, min(5.0, timeout_candidate))
+        self.known_path = KNOWN_SERVERS_FILE
+        self.known_servers = _load_known_servers(self.default_port, self.known_path)
+        self.entries: List[Dict[str, Any]] = []
+        self.tree_items: Dict[str, Dict[str, Any]] = {}
+        self.selection: Optional[Dict[str, Any]] = None
+
+    def run(self) -> Dict[str, Any]:
+        try:
+            import tkinter as tk
+            from tkinter import ttk, messagebox, simpledialog
+        except Exception as exc:
+            print(f"[browser] unable to launch UI: {exc}")
+            return {'cancelled': True, 'reason': 'ui_unavailable', 'error': str(exc)}
+
+        self.tk = tk
+        self.ttk = ttk
+        self.messagebox = messagebox
+        self.simpledialog = simpledialog
+
+        root = tk.Tk()
+        root.title('Select Server')
+        root.minsize(720, 380)
+        self.root = root
+        self._build_widgets()
+        self.refresh_entries()
+        root.protocol('WM_DELETE_WINDOW', self.on_cancel)
+        root.mainloop()
+
+        if self.selection is None:
+            return {'cancelled': True, 'reason': 'user_cancelled'}
+        return self.selection
+
+    def _build_widgets(self) -> None:
+        root = self.root
+        root.columnconfigure(0, weight=1)
+        root.rowconfigure(0, weight=1)
+
+        columns = ('name', 'status', 'players', 'map', 'address', 'source')
+        tree = self.ttk.Treeview(root, columns=columns, show='headings', height=12)
+        tree.heading('name', text='Server')
+        tree.heading('status', text='Status')
+        tree.heading('players', text='Players')
+        tree.heading('map', text='Map')
+        tree.heading('address', text='Address')
+        tree.heading('source', text='Source')
+        tree.column('name', width=200, anchor='w')
+        tree.column('status', width=80, anchor='center')
+        tree.column('players', width=140, anchor='center')
+        tree.column('map', width=180, anchor='w')
+        tree.column('address', width=160, anchor='w')
+        tree.column('source', width=100, anchor='center')
+        tree.bind('<Double-1>', self.on_join)
+        tree.grid(row=0, column=0, sticky='nsew')
+
+        scrollbar = self.ttk.Scrollbar(root, orient='vertical', command=tree.yview)
+        scrollbar.grid(row=0, column=1, sticky='ns')
+        tree.configure(yscrollcommand=scrollbar.set)
+
+        btn_frame = self.ttk.Frame(root, padding=8)
+        btn_frame.grid(row=1, column=0, columnspan=2, sticky='ew')
+        btn_frame.columnconfigure(0, weight=1)
+        btn_frame.columnconfigure(1, weight=1)
+        btn_frame.columnconfigure(2, weight=1)
+        btn_frame.columnconfigure(3, weight=1)
+
+        self.ttk.Button(btn_frame, text='Refresh', command=self.refresh_entries).grid(row=0, column=0, padx=4, sticky='ew')
+        self.ttk.Button(btn_frame, text='Add', command=self.add_server).grid(row=0, column=1, padx=4, sticky='ew')
+        self.ttk.Button(btn_frame, text='Delete', command=self.delete_server).grid(row=0, column=2, padx=4, sticky='ew')
+        self.ttk.Button(btn_frame, text='Join', command=self.on_join).grid(row=0, column=3, padx=4, sticky='ew')
+        self.ttk.Button(btn_frame, text='Quit', command=self.on_cancel).grid(row=0, column=4, padx=4, sticky='ew')
+
+        self.tree = tree
+
+    def refresh_entries(self) -> None:
+        self.entries = _gather_server_entries(self.cfg, self.known_servers, discovery_timeout=self.discovery_timeout)
+        self._populate_tree()
+
+    def _populate_tree(self) -> None:
+        tree = self.tree
+        for item in tree.get_children():
+            tree.delete(item)
+        self.tree_items.clear()
+
+        for entry in self.entries:
+            players_str = f"{entry['players']}/{entry['max_players']}"
+            if entry.get('bots'):
+                players_str += f" (+{entry['bots']} bots)"
+            if entry.get('spectators'):
+                players_str += f", {entry['spectators']} spec"
+            map_label = entry['map']
+            if entry.get('mode'):
+                map_label = f"{map_label} ({entry['mode']})" if map_label else entry['mode']
+            status = 'Online' if entry['online'] else 'Offline'
+            addr = f"{entry['host']}:{entry['port']}"
+            source = entry.get('source', '')
+            item_id = tree.insert('', 'end', values=(entry['name'], status, players_str, map_label, addr, source))
+            self.tree_items[item_id] = entry
+
+        first = tree.get_children()
+        if first:
+            tree.selection_set(first[0])
+            tree.focus(first[0])
+
+    def add_server(self) -> None:
+        host_input = self.simpledialog.askstring('Add Server', 'Host or host:port', parent=self.root)
+        if not host_input:
+            return
+        host_input = host_input.strip()
+        port = self.default_port
+        host = host_input
+        if ':' in host_input:
+            host_part, port_part = host_input.split(':', 1)
+            host = host_part.strip()
+            try:
+                port = int(port_part.strip())
+            except Exception:
+                self.messagebox.showerror('Invalid port', 'Please enter a valid port number.')
+                return
+        if not host:
+            return
+        label = self.simpledialog.askstring('Display name', 'Optional display name', parent=self.root)
+        entry = {'host': host, 'port': int(port)}
+        if label and label.strip():
+            entry['label'] = label.strip()
+        replaced = False
+        for existing in self.known_servers:
+            if existing.get('host') == host and int(existing.get('port', self.default_port)) == int(port):
+                if entry.get('label'):
+                    existing['label'] = entry['label']
+                replaced = True
+                break
+        if not replaced:
+            self.known_servers.append(entry)
+        _save_known_servers(self.known_servers, self.known_path)
+        self.refresh_entries()
+
+    def delete_server(self) -> None:
+        selection = self.tree.selection()
+        if not selection:
+            return
+        entry = self.tree_items.get(selection[0])
+        if not entry or not entry.get('from_known'):
+            self.messagebox.showinfo('Cannot delete', 'Only saved servers can be removed.')
+            return
+        host, port = entry['host'], int(entry['port'])
+        new_list = [s for s in self.known_servers if not (s.get('host') == host and int(s.get('port', self.default_port)) == port)]
+        if len(new_list) == len(self.known_servers):
+            return
+        self.known_servers = new_list
+        _save_known_servers(self.known_servers, self.known_path)
+        self.refresh_entries()
+
+    def on_join(self, _event=None) -> None:
+        selection = self.tree.selection()
+        if not selection:
+            return
+        entry = self.tree_items.get(selection[0])
+        if not entry:
+            return
+        self.selection = {
+            'host': entry['host'],
+            'port': int(entry['port']),
+            'manual': bool(entry.get('manual')),
+            'stats': entry.get('stats', {}),
+            'source': entry.get('source'),
+        }
+        self.root.destroy()
+
+    def on_cancel(self) -> None:
+        self.selection = None
+        self.root.destroy()
+
+
+def browse_for_server(cfg: Dict[str, Any], settings: Dict[str, Any]) -> Dict[str, Any]:
+    browser = ServerBrowserUI(cfg, settings)
+    return browser.run()
+
+
+
 def pick_server(settings: Dict[str, Any], shared_cfg: Dict[str, Any], skip_last: bool = False):
     net = settings.get("network", {}) if settings else {}
     srv = net.get("server", {})
@@ -2652,7 +3062,19 @@ def main():
 
     # Choose server
     host, port = args.host, args.port
-    if host is None or host == "":
+    manual_host = bool(host)
+    if not host:
+        browse_result = browse_for_server(cfg, settings)
+        if isinstance(browse_result, dict) and not browse_result.get("cancelled"):
+            host = browse_result.get("host")
+            port = browse_result.get("port") or port
+            manual_host = browse_result.get("manual", False)
+        elif isinstance(browse_result, dict) and browse_result.get("reason") == "ui_unavailable":
+            pass
+        else:
+            print("No server selected. Exiting.")
+            sys.exit(0)
+    if not host:
         host2, port2 = pick_server(settings, cfg)
         host = host2 or host
         port = port2 or port
@@ -2678,7 +3100,7 @@ def main():
         interp_predict=args.interp_predict,
         settings=settings,
         team_pref=team_pref,
-        manual_host=(args.host is not None and args.host != ""),
+        manual_host=manual_host,
         spectator=args.spectator,
     )
 
