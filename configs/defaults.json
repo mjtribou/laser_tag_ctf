@@ -16,7 +16,9 @@
       "turn_rates": {
         "idle": 420.0,
         "engaged": 420.0
-      }
+      },
+      "engagement_range_m": 40.0,
+      "target_acquire_range_m": 45.0
     }
   },
   "gameplay": {
