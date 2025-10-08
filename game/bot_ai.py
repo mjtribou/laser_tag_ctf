@@ -714,6 +714,26 @@ class AStarBotBrain:
         if not self._path or self._path_i >= len(self._path):
             return
         tx, ty = self._path[self._path_i]
+
+        # When navigating around sharp corners we want to make sure the bot fully
+        # reaches the corner node before advancing to the next waypoint. Otherwise
+        # it can start steering towards the next point too early and scrape
+        # against the corner, which is exactly what happens on ai_test.json's
+        # push lane. Detect large course changes and tighten the threshold.
+        if self._path_i + 1 < len(self._path):
+            nxt = self._path[self._path_i + 1]
+            prv = self._path[self._path_i - 1] if self._path_i - 1 >= 0 else None
+            if prv is not None:
+                vx0 = tx - prv[0]
+                vy0 = ty - prv[1]
+                vx1 = nxt[0] - tx
+                vy1 = nxt[1] - ty
+                len0 = math.hypot(vx0, vy0)
+                len1 = math.hypot(vx1, vy1)
+                if len0 > 1e-3 and len1 > 1e-3:
+                    dot = (vx0 * vx1 + vy0 * vy1) / (len0 * len1)
+                    if dot < 0.5:
+                        threshold = min(threshold, 0.35)
         if math.hypot(me_xy[0] - tx, me_xy[1] - ty) <= threshold:
             self._path_i += 1
             self._last_progress_t = time.time()
