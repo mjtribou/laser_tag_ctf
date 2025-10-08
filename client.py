@@ -482,6 +482,14 @@ class ServerBrowserApp(ShowBase):
             self.taskMgr.doMethodLater(self._auto_refresh_interval, self._auto_refresh, "server_browser_auto_refresh")
         self.refresh(initial=True)
 
+    # ------------------------------------------------------------------ ShowBase overrides
+    def finalizeExit(self):
+        """Override default ShowBase behavior to avoid sys.exit()."""
+        try:
+            self.taskMgr.stop()
+        except Exception:
+            pass
+
     # ------------------------------------------------------------------ UI helpers
     def _build_ui(self):
         self.title = OnscreenText(
