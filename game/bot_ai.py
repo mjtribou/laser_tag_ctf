@@ -356,6 +356,8 @@ class AStarBotBrain:
         radio: BotRadio = RADIO,
         idle_turn_rate_deg: float = 240.0,
         engaged_turn_rate_deg: float = 420.0,
+        engagement_range_m: float = 40.0,
+        target_acquire_range_m: float = 45.0,
     ) -> None:
         self.team = team
         self.base_pos = base_pos
@@ -385,6 +387,9 @@ class AStarBotBrain:
         engaged_deg = max(idle_deg, float(engaged_turn_rate_deg))
         self._turn_rate_idle = math.radians(idle_deg)
         self._turn_rate_engaged = math.radians(engaged_deg)
+        self._engagement_range = max(0.0, float(engagement_range_m))
+        target_range = max(self._engagement_range, float(target_acquire_range_m))
+        self._target_acquire_range = target_range
         self._micro_state: str = ""
         self._micro_target: Optional[Tuple[float, float]] = None
         self._micro_retreat_vec: Optional[Tuple[float, float]] = None
@@ -788,7 +793,7 @@ class AStarBotBrain:
         self,
         me,
         gs,
-        max_range: float = 45.0,
+        max_range: Optional[float] = None,
         require_line: bool = False,
         mapdata=None,
         now: Optional[float] = None,
@@ -797,6 +802,8 @@ class AStarBotBrain:
     ):
         if now is None:
             now = time.time()
+        if max_range is None:
+            max_range = self._target_acquire_range
         best = None
         best_d2 = max_range * max_range
         pool: Iterable
@@ -1259,7 +1266,7 @@ class AStarBotBrain:
         turn_rate = self._turn_rate_idle
         if enemy is not None:
             dist = math.hypot(enemy.x - me.x, enemy.y - me.y)
-            inputs["fire"] = dist <= 40.0
+            inputs["fire"] = dist <= self._engagement_range
             aim_point = (enemy.x, enemy.y)
             turn_rate = self._turn_rate_engaged
         elif self._micro_state == "peek" and self._micro_target:

@@ -590,6 +590,10 @@ class LaserTagServer:
             turn_cfg = bot_cfg.get("turn_rates", {})
             idle_turn = float(turn_cfg.get("idle", 240.0))
             engaged_turn = float(turn_cfg.get("engaged", 420.0))
+            engagement_range = float(bot_cfg.get("engagement_range_m", 40.0))
+            target_acquire_range = float(bot_cfg.get("target_acquire_range_m", max(engagement_range, 45.0)))
+            if target_acquire_range < engagement_range:
+                target_acquire_range = engagement_range
 
             brain = AStarBotBrain(
                 team,
@@ -599,6 +603,8 @@ class LaserTagServer:
                 nav_graph=self.nav_graph,
                 idle_turn_rate_deg=idle_turn,
                 engaged_turn_rate_deg=engaged_turn,
+                engagement_range_m=engagement_range,
+                target_acquire_range_m=target_acquire_range,
             )
             self.bot_brains[pid] = brain
 
