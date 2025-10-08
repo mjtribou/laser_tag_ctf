@@ -74,9 +74,8 @@ from panda3d.core import CompassEffect, BillboardEffect, LColor
 from panda3d.core import GeomNode, GeomVertexReader, GeomVertexWriter, GeomTriangles, GeomVertexFormat
 from panda3d.core import loadPrcFileData
 
-KNOWN_SERVERS_FILE = os.path.join("configs", "known_servers.json")
-
 from common.net import send_json, read_json, lan_discovery_broadcast, lan_discovery_query
+from server_browser_utils import (KNOWN_SERVERS_FILE, format_uptime, load_known_servers, save_known_servers)
 from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL, PLAYER_HEIGHT
 from scoreboard import Scoreboard
 from game.map_gen import load_from_file as load_map_from_file
@@ -457,7 +456,7 @@ class ServerBrowserApp(ShowBase):
         self.default_port = int(default_port)
         self.discovery_port = int(cfg.get("server", {}).get("lan_discovery_port", 50000))
         self.known_path = known_path
-        self.known_servers = _load_known_servers(known_path)
+        self.known_servers = load_known_servers(known_path)
 
         self.servers: List[Dict[str, Any]] = []
         self.selected_index: Optional[int] = None
@@ -828,7 +827,7 @@ class ServerBrowserApp(ShowBase):
                 break
         if not replaced:
             self.known_servers.append(entry)
-        _save_known_servers(self.known_path, self.known_servers)
+        save_known_servers(self.known_path, self.known_servers)
         self._set_status("Saved server entry.")
         self._close_dialog()
         self.refresh()
@@ -851,7 +850,7 @@ class ServerBrowserApp(ShowBase):
         if len(self.known_servers) == before:
             self._set_status("Server not found in saved list.")
             return
-        _save_known_servers(self.known_path, self.known_servers)
+        save_known_servers(self.known_path, self.known_servers)
         self._set_status("Removed saved server.")
         self.selected_index = None
         self.selected_key = None
@@ -882,7 +881,7 @@ class ServerBrowserApp(ShowBase):
         if caps.get("to_win"):
             cap_line += f" / {caps.get('to_win')}"
         uptime = stats.get("uptime")
-        uptime_line = f"Uptime {self._format_uptime(uptime)}" if uptime is not None else "Uptime ?"
+        uptime_line = f"Uptime {format_uptime(uptime)}" if uptime is not None else "Uptime ?"
         source_key = entry.get("source", "LAN")
         if source_key == "manual_offline":
             source = "Saved"
@@ -899,19 +898,7 @@ class ServerBrowserApp(ShowBase):
         )
 
     def _format_uptime(self, seconds: Optional[float]) -> str:
-        if seconds is None:
-            return "?"
-        try:
-            seconds = int(seconds)
-        except Exception:
-            return "?"
-        if seconds < 60:
-            return f"{seconds}s"
-        minutes, sec = divmod(seconds, 60)
-        if minutes < 60:
-            return f"{minutes}m {sec}s"
-        hours, minutes = divmod(minutes, 60)
-        return f"{hours}h {minutes}m"
+        return format_uptime(seconds)
 
     def cleanup(self):
         self._shutting_down = True
@@ -3053,48 +3040,6 @@ class GameApp(ShowBase):
             self.net_runner.run_coro(self.client.recv_state_loop(self.on_state))
 
         future.add_done_callback(_after_connect)
-
-def _load_known_servers(path: str = KNOWN_SERVERS_FILE) -> List[Dict[str, Any]]:
-    try:
-        with open(path, "r") as f:
-            raw = json.load(f)
-    except Exception:
-        return []
-    servers = raw.get("servers") if isinstance(raw, dict) else raw
-    if not isinstance(servers, list):
-        return []
-    cleaned: List[Dict[str, Any]] = []
-    for item in servers:
-        if not isinstance(item, dict):
-            continue
-        host = str(item.get("host", "")).strip()
-        if not host:
-            continue
-        entry: Dict[str, Any] = {"host": host}
-        try:
-            entry["port"] = int(item.get("port", 0) or 0)
-        except Exception:
-            entry["port"] = 0
-        try:
-            entry["discovery_port"] = int(item.get("discovery_port", 0) or 0)
-        except Exception:
-            entry["discovery_port"] = 0
-        label = item.get("label")
-        if isinstance(label, str) and label.strip():
-            entry["label"] = label.strip()
-        if "added_at" in item:
-            entry["added_at"] = item.get("added_at")
-        cleaned.append(entry)
-    return cleaned
-
-
-def _save_known_servers(path: str, servers: List[Dict[str, Any]]):
-    try:
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        with open(path, "w") as f:
-            json.dump({"servers": servers}, f, indent=2)
-    except Exception as e:
-        print(f"[settings] failed to save known servers: {e}")
 
 
 def _load_client_state(path: str) -> Dict[str, Any]:
