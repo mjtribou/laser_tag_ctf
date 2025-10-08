@@ -3,7 +3,7 @@ import asyncio
 import json
 import struct
 from dataclasses import dataclass, asdict
-from typing import Dict, Any
+from typing import Dict, Any, Callable, Optional
 
 # Simple newline-delimited JSON protocol helpers
 
@@ -48,7 +48,7 @@ async def lan_discovery_broadcast(port: int, timeout: float = 1.0):
                 try:
                     res = json.loads(data.decode("utf-8"))
                     if res.get("magic") == DISCOVERY_MAGIC and "name" in res:
-                        res["addr"] = addr[0]
+                        res.setdefault("addr", addr[0])
                         servers.append(res)
                 except Exception:
                     pass
@@ -60,16 +60,68 @@ async def lan_discovery_broadcast(port: int, timeout: float = 1.0):
     await receive_replies()
     return servers
 
-async def lan_discovery_server(name: str, port: int, discovery_port: int):
+async def lan_discovery_query(host: str, port: int, timeout: float = 1.0) -> Dict[str, Any]:
+    """Send a unicast discovery query directly to a host."""
+    import socket
+
+    loop = asyncio.get_event_loop()
+
+    recv_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    recv_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    recv_sock.bind(("", 0))
+    recv_port = recv_sock.getsockname()[1]
+    recv_sock.setblocking(False)
+
+    send_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    send_sock.setblocking(False)
+
+    msg = json.dumps({"magic": DISCOVERY_MAGIC, "reply_port": recv_port}).encode("utf-8")
+
+    try:
+        send_sock.sendto(msg, (host, port))
+    except Exception:
+        recv_sock.close()
+        send_sock.close()
+        return {}
+
+    async def receive_one() -> Dict[str, Any]:
+        end = loop.time() + timeout
+        while loop.time() < end:
+            try:
+                data, addr = await loop.run_in_executor(None, recv_sock.recvfrom, 2048)
+                try:
+                    res = json.loads(data.decode("utf-8"))
+                    if res.get("magic") == DISCOVERY_MAGIC and "name" in res:
+                        res.setdefault("addr", addr[0])
+                        return res
+                except Exception:
+                    pass
+            except Exception:
+                await asyncio.sleep(0.01)
+        return {}
+
+    try:
+        return await receive_one()
+    finally:
+        recv_sock.close()
+        send_sock.close()
+
+async def lan_discovery_server(
+    name: str,
+    port: int,
+    discovery_port: int,
+    info_cb: Optional[Callable[[], Dict[str, Any]]] = None,
+):
     """UDP task that replies to LAN discovery pings using asyncio DatagramProtocol."""
     import asyncio, json
     from asyncio import DatagramProtocol
 
     class DiscoveryProtocol(DatagramProtocol):
-        def __init__(self, name: str, tcp_port: int):
+        def __init__(self, name: str, tcp_port: int, info_cb: Optional[Callable[[], Dict[str, Any]]]):
             self.name = name
             self.tcp_port = tcp_port
             self.transport = None
+            self.info_cb = info_cb
 
         def connection_made(self, transport):
             self.transport = transport
@@ -88,9 +140,20 @@ async def lan_discovery_server(name: str, port: int, discovery_port: int):
                 if msg.get("magic") != DISCOVERY_MAGIC:
                     return
                 reply_port = int(msg.get("reply_port", addr[1]))
-                reply = json.dumps(
-                    {"magic": DISCOVERY_MAGIC, "name": self.name, "tcp_port": self.tcp_port}
-                ).encode("utf-8")
+                payload: Dict[str, Any] = {
+                    "magic": DISCOVERY_MAGIC,
+                    "name": self.name,
+                    "tcp_port": self.tcp_port,
+                    "discovery_port": discovery_port,
+                }
+                if self.info_cb is not None:
+                    try:
+                        info = self.info_cb()
+                        if info:
+                            payload["stats"] = info
+                    except Exception:
+                        pass
+                reply = json.dumps(payload).encode("utf-8")
                 # Unicast reply back to the requester’s indicated port
                 self.transport.sendto(reply, (addr[0], reply_port))
             except Exception:
@@ -108,7 +171,7 @@ async def lan_discovery_server(name: str, port: int, discovery_port: int):
     loop = asyncio.get_running_loop()
     # Bind to 0.0.0.0 on discovery_port
     transport, protocol = await loop.create_datagram_endpoint(
-        lambda: DiscoveryProtocol(name, port),
+        lambda: DiscoveryProtocol(name, port, info_cb),
         local_addr=("0.0.0.0", discovery_port),
         allow_broadcast=True,
     )

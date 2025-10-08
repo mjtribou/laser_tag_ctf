@@ -1,10 +1,18 @@
 # client.py
-import sys, asyncio, json, time, math, argparse, threading, random, os
+import sys, asyncio, json, time, math, argparse, threading, random, os, queue
 from typing import Dict, Any, List, Tuple, Optional, Set
 from bisect import bisect, bisect_right
 
 from direct.showbase.ShowBase import ShowBase
 from direct.gui.OnscreenText import OnscreenText
+from direct.gui.DirectGui import (
+    DirectButton,
+    DirectEntry,
+    DirectLabel,
+    DirectFrame,
+    DirectScrolledFrame,
+)
+from direct.gui import DirectGuiGlobals as DGG
 from panda3d.core import Vec3, Point3, DirectionalLight, AmbientLight, LVector3f, KeyboardButton, WindowProperties, ClockObject
 from panda3d.core import LColor, MouseButton, LineSegs, TextNode
 from panda3d.core import TextNode, TransparencyAttrib, NodePath, LVecBase4f, CullFaceAttrib
@@ -66,7 +74,9 @@ from panda3d.core import CompassEffect, BillboardEffect, LColor
 from panda3d.core import GeomNode, GeomVertexReader, GeomVertexWriter, GeomTriangles, GeomVertexFormat
 from panda3d.core import loadPrcFileData
 
-from common.net import send_json, read_json, lan_discovery_broadcast
+KNOWN_SERVERS_FILE = os.path.join("configs", "known_servers.json")
+
+from common.net import send_json, read_json, lan_discovery_broadcast, lan_discovery_query
 from game.constants import TEAM_RED, TEAM_BLUE, TEAM_NEUTRAL, PLAYER_HEIGHT
 from scoreboard import Scoreboard
 from game.map_gen import load_from_file as load_map_from_file
@@ -402,15 +412,498 @@ class AsyncRunner:
         self.loop = asyncio.new_event_loop()
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
+        self._closed = False
 
     def _run(self):
         asyncio.set_event_loop(self.loop)
-        self.loop.run_forever()
+        try:
+            self.loop.run_forever()
+        finally:
+            try:
+                self.loop.close()
+            except Exception:
+                pass
 
     def run_coro(self, coro):
         """Schedule a coroutine onto the background loop."""
         return asyncio.run_coroutine_threadsafe(coro, self.loop)
 
+    def shutdown(self, wait: float = 1.0):
+        if self._closed:
+            return
+        self._closed = True
+        try:
+            self.loop.call_soon_threadsafe(self.loop.stop)
+        except Exception:
+            pass
+        if self.thread.is_alive():
+            try:
+                self.thread.join(timeout=wait)
+            except Exception:
+                pass
+
+
+
+class ServerBrowserApp(ShowBase):
+    """Simple UI for browsing and selecting known or discovered servers."""
+
+    def __init__(self, cfg, settings, default_port: int, known_path: str):
+        ShowBase.__init__(self)
+        self.set_background_color(0.05, 0.05, 0.07, 1)
+        self.disableMouse()
+
+        self.cfg = cfg
+        self.settings = settings or {}
+        self.default_port = int(default_port)
+        self.discovery_port = int(cfg.get("server", {}).get("lan_discovery_port", 50000))
+        self.known_path = known_path
+        self.known_servers = _load_known_servers(known_path)
+
+        self.servers: List[Dict[str, Any]] = []
+        self.selected_index: Optional[int] = None
+        self.selected_key: Optional[str] = None
+        self.selected_server: Optional[Dict[str, Any]] = None
+        self.cancelled = True
+
+        self._dialog: Optional[DirectFrame] = None
+        self._dialog_name: Optional[DirectEntry] = None
+        self._dialog_host: Optional[DirectEntry] = None
+        self._refresh_inflight = False
+
+        self.net_runner = AsyncRunner()
+        self._result_queue: "queue.Queue" = queue.Queue()
+        browser_settings = self.settings.get("server_browser", {}) if isinstance(self.settings, dict) else {}
+        self._auto_refresh_interval = float(browser_settings.get("auto_refresh_seconds", 6.0))
+
+        self._build_ui()
+        self.accept("escape", self._on_cancel)
+        self.taskMgr.add(self._poll_updates, "server_browser_poll")
+        if self._auto_refresh_interval > 0:
+            self.taskMgr.doMethodLater(self._auto_refresh_interval, self._auto_refresh, "server_browser_auto_refresh")
+        self.refresh(initial=True)
+
+    # ------------------------------------------------------------------ UI helpers
+    def _build_ui(self):
+        self.title = OnscreenText(
+            text="Select a server", pos=(0, 0.87), fg=(1, 1, 1, 1), align=TextNode.ACenter, scale=0.09
+        )
+        self.status_text = OnscreenText(
+            text="", pos=(-1.25, -0.92), fg=(0.8, 0.8, 0.8, 1), align=TextNode.ALeft, scale=0.045, mayChange=True
+        )
+
+        self.list_frame = DirectScrolledFrame(
+            frameSize=(-1.3, 1.3, -0.65, 0.6),
+            canvasSize=(-1.2, 1.2, -0.1, 0.1),
+            frameColor=(0.02, 0.02, 0.05, 0.85),
+            pos=(0, 0, 0.06),
+            scrollBarWidth=0.06,
+        )
+        self.row_widgets: List[DirectButton] = []
+
+        btn_y = -0.8
+        self.join_btn = DirectButton(
+            text="Join", pos=(-0.9, 0, btn_y), scale=0.07, command=self._on_join, relief=DGG.FLAT,
+            frameColor=(0.25, 0.45, 0.25, 1), text_fg=(1, 1, 1, 1)
+        )
+        self.refresh_btn = DirectButton(
+            text="Refresh", pos=(-0.3, 0, btn_y), scale=0.07, command=self.refresh, relief=DGG.FLAT,
+            frameColor=(0.25, 0.25, 0.45, 1), text_fg=(1, 1, 1, 1)
+        )
+        self.add_btn = DirectButton(
+            text="Add", pos=(0.3, 0, btn_y), scale=0.07, command=self._open_add_dialog, relief=DGG.FLAT,
+            frameColor=(0.35, 0.35, 0.2, 1), text_fg=(1, 1, 1, 1)
+        )
+        self.delete_btn = DirectButton(
+            text="Delete", pos=(0.9, 0, btn_y), scale=0.07, command=self._delete_selected, relief=DGG.FLAT,
+            frameColor=(0.45, 0.25, 0.25, 1), text_fg=(1, 1, 1, 1)
+        )
+        self.cancel_btn = DirectButton(
+            text="Cancel", pos=(0, 0, -0.92), scale=0.06, command=self._on_cancel, relief=DGG.FLAT,
+            frameColor=(0.2, 0.2, 0.2, 1), text_fg=(1, 1, 1, 1)
+        )
+        self._update_buttons()
+
+    def _set_status(self, text: str):
+        if self.status_text:
+            self.status_text.setText(text)
+
+    def _update_buttons(self):
+        if self.selected_index is None or self.selected_index >= len(self.servers):
+            self.join_btn["state"] = DGG.DISABLED
+            self.delete_btn["state"] = DGG.DISABLED
+        else:
+            self.join_btn["state"] = DGG.NORMAL
+            entry = self.servers[self.selected_index]
+            self.delete_btn["state"] = DGG.NORMAL if entry.get("manual") else DGG.DISABLED
+
+    # ------------------------------------------------------------------ Data refresh
+    def refresh(self, initial: bool = False):
+        if self._refresh_inflight:
+            return
+        self._refresh_inflight = True
+        timeout = float(self.settings.get("server_browser", {}).get("discovery_timeout", 1.0)) if isinstance(self.settings, dict) else 1.0
+
+        async def _collect():
+            return await self._collect_servers(timeout)
+
+        future = self.net_runner.run_coro(_collect())
+
+        def _done(fut):
+            try:
+                data = fut.result()
+                self._result_queue.put({"servers": data, "timestamp": time.time()})
+            except Exception as e:
+                self._result_queue.put({"error": str(e)})
+            finally:
+                self._refresh_inflight = False
+
+        future.add_done_callback(_done)
+        if initial:
+            self._set_status("Discovering servers...")
+
+    async def _collect_servers(self, timeout: float) -> List[Dict[str, Any]]:
+        results: Dict[str, Dict[str, Any]] = {}
+        saved_lookup: Dict[str, Dict[str, Any]] = {}
+        for item in self.known_servers:
+            host = item.get("host")
+            if not host:
+                continue
+            port = int(item.get("port", 0) or 0)
+            key = f"{host}:{port if port else self.default_port}"
+            saved_lookup[key] = item
+
+        try:
+            discovered = await lan_discovery_broadcast(self.discovery_port, timeout=timeout)
+        except Exception:
+            discovered = []
+
+        remaining_saved = dict(saved_lookup)
+        for entry in discovered:
+            host = entry.get("addr")
+            port = int(entry.get("tcp_port", self.default_port))
+            key = f"{host}:{port}"
+            stats = entry.get("stats", {}) or {}
+            saved = remaining_saved.pop(key, None)
+            name = entry.get("name") or stats.get("name") or host or "Server"
+            data = {
+                "key": key,
+                "name": name,
+                "host": host,
+                "port": port,
+                "discovery_port": int(entry.get("discovery_port", self.discovery_port)),
+                "info": stats,
+                "online": True,
+                "manual": bool(saved),
+                "source": "lan" if not saved else "saved+lan",
+            }
+            if saved:
+                data["saved_host"] = saved.get("host")
+                data["saved_port"] = int(saved.get("port", 0) or self.default_port)
+                label = saved.get("label")
+                if label:
+                    data["name"] = label
+            results[key] = data
+
+        for key, saved in remaining_saved.items():
+            host = saved.get("host")
+            if not host:
+                continue
+            port = int(saved.get("port", 0) or self.default_port)
+            disc_port = int(saved.get("discovery_port", 0) or self.discovery_port)
+            label = saved.get("label") or host
+            try:
+                res = await lan_discovery_query(host, disc_port, timeout=timeout)
+            except Exception:
+                res = {}
+            if res:
+                resp_host = res.get("addr", host)
+                resp_port = int(res.get("tcp_port", port))
+                stats = res.get("stats", {}) or {}
+                resp_key = f"{resp_host}:{resp_port}"
+                entry_name = saved.get("label") or res.get("name") or resp_host
+                results[resp_key] = {
+                    "key": resp_key,
+                    "name": entry_name,
+                    "host": resp_host,
+                    "port": resp_port,
+                    "discovery_port": int(res.get("discovery_port", disc_port)),
+                    "info": stats,
+                    "online": True,
+                    "manual": True,
+                    "source": "manual",
+                    "saved_host": host,
+                    "saved_port": port,
+                }
+            else:
+                offline_key = f"{host}:{port}"
+                results[offline_key] = {
+                    "key": offline_key,
+                    "name": label,
+                    "host": host,
+                    "port": port,
+                    "discovery_port": disc_port,
+                    "info": {},
+                    "online": False,
+                    "manual": True,
+                    "source": "manual_offline",
+                    "saved_host": host,
+                    "saved_port": port,
+                }
+
+        def sort_key(item: Dict[str, Any]):
+            return (
+                0 if item.get("online") else 1,
+                0 if item.get("manual") else 1,
+                str(item.get("name", "")).lower(),
+            )
+
+        return sorted(results.values(), key=sort_key)
+
+    # ------------------------------------------------------------------ Task helpers
+    def _poll_updates(self, task):
+        try:
+            while True:
+                payload = self._result_queue.get_nowait()
+                self._handle_payload(payload)
+        except queue.Empty:
+            pass
+        return task.cont
+
+    def _handle_payload(self, payload: Dict[str, Any]):
+        if "servers" in payload:
+            prev_key = self.selected_key
+            self.servers = payload["servers"]
+            self._rebuild_list()
+            if prev_key:
+                for idx, entry in enumerate(self.servers):
+                    if entry.get("key") == prev_key:
+                        self.selected_index = idx
+                        self.selected_key = prev_key
+                        self.selected_server = entry
+                        break
+                else:
+                    self.selected_index = None
+                    self.selected_key = None
+                    self.selected_server = None
+            if "timestamp" in payload:
+                ts = time.strftime("%H:%M:%S", time.localtime(payload["timestamp"]))
+                self._set_status(f"Updated {len(self.servers)} servers at {ts}")
+            self._update_buttons()
+        elif "error" in payload:
+            self._set_status(f"Refresh failed: {payload['error']}")
+
+    def _rebuild_list(self):
+        for btn in self.row_widgets:
+            try:
+                btn.destroy()
+            except Exception:
+                pass
+        self.row_widgets = []
+        canvas = self.list_frame.getCanvas()
+        row_h = 0.22
+        total_h = max(len(self.servers) * row_h + 0.1, 0.4)
+        self.list_frame["canvasSize"] = (-1.2, 1.2, -total_h, 0.2)
+        for idx, entry in enumerate(self.servers):
+            text = self._format_entry(entry)
+            btn = DirectButton(
+                parent=canvas,
+                text=text,
+                pos=(-1.15, 0, 0.08 - idx * row_h),
+                scale=0.05,
+                text_align=TextNode.ALeft,
+                textMayChange=True,
+                command=self._select_row,
+                extraArgs=[idx],
+                frameColor=self._row_frame_color(entry.get("key") == self.selected_key),
+                relief=DGG.FLAT,
+                text_fg=(0.88, 0.88, 0.88, 1) if entry.get("online") else (0.6, 0.6, 0.6, 1),
+            )
+            self.row_widgets.append(btn)
+
+    def _row_frame_color(self, selected: bool):
+        return (0.35, 0.35, 0.5, 1) if selected else (0.15, 0.15, 0.2, 1)
+
+    def _select_row(self, idx: int):
+        if idx < 0 or idx >= len(self.servers):
+            return
+        self.selected_index = idx
+        entry = self.servers[idx]
+        self.selected_key = entry.get("key")
+        self.selected_server = entry
+        self._update_buttons()
+        for i, btn in enumerate(self.row_widgets):
+            btn["frameColor"] = self._row_frame_color(i == idx)
+
+    def _auto_refresh(self, task):
+        self.refresh()
+        return task.again
+
+    # ------------------------------------------------------------------ Actions
+    def _on_join(self):
+        if self.selected_index is None or self.selected_index >= len(self.servers):
+            self._set_status("Select a server to join.")
+            return
+        self.selected_server = self.servers[self.selected_index]
+        self.cancelled = False
+        self.userExit()
+
+    def _on_cancel(self):
+        self.cancelled = True
+        self.selected_server = None
+        self.userExit()
+
+    def _open_add_dialog(self):
+        if self._dialog is not None:
+            return
+        self._dialog = DirectFrame(frameSize=(-0.7, 0.7, -0.35, 0.35), frameColor=(0.05, 0.05, 0.08, 0.95))
+        DirectLabel(parent=self._dialog, text="Add Server", pos=(0, 0, 0.26), scale=0.07)
+        DirectLabel(parent=self._dialog, text="Name (optional)", pos=(-0.6, 0, 0.12), scale=0.05, text_align=TextNode.ALeft)
+        self._dialog_name = DirectEntry(parent=self._dialog, pos=(-0.6, 0, 0.04), scale=0.05, width=18, numLines=1, focus=1)
+        DirectLabel(parent=self._dialog, text="Address (host or host:port)", pos=(-0.6, 0, -0.08), scale=0.05, text_align=TextNode.ALeft)
+        self._dialog_host = DirectEntry(parent=self._dialog, pos=(-0.6, 0, -0.16), scale=0.05, width=18, numLines=1)
+        DirectButton(parent=self._dialog, text="Add", pos=(-0.2, 0, -0.28), scale=0.05, command=self._confirm_add, relief=DGG.FLAT,
+                     frameColor=(0.25, 0.45, 0.25, 1), text_fg=(1, 1, 1, 1))
+        DirectButton(parent=self._dialog, text="Cancel", pos=(0.2, 0, -0.28), scale=0.05, command=self._close_dialog, relief=DGG.FLAT,
+                     frameColor=(0.4, 0.25, 0.25, 1), text_fg=(1, 1, 1, 1))
+
+    def _close_dialog(self):
+        if self._dialog is not None:
+            try:
+                self._dialog.destroy()
+            except Exception:
+                pass
+        self._dialog = None
+        self._dialog_name = None
+        self._dialog_host = None
+
+    def _confirm_add(self):
+        if self._dialog_host is None:
+            return
+        address = self._dialog_host.get().strip()
+        label = self._dialog_name.get().strip() if self._dialog_name else ""
+        if not address:
+            self._set_status("Enter a server address.")
+            return
+        host = address
+        port = self.default_port
+        if ":" in address:
+            host_part, port_part = address.rsplit(":", 1)
+            if host_part:
+                host = host_part.strip()
+            try:
+                port = int(port_part.strip())
+            except Exception:
+                port = self.default_port
+        entry = {
+            "host": host,
+            "port": port,
+            "discovery_port": self.discovery_port,
+            "added_at": time.time(),
+        }
+        if label:
+            entry["label"] = label
+        replaced = False
+        for existing in self.known_servers:
+            if existing.get("host") == host and int(existing.get("port", 0) or self.default_port) == port:
+                existing.update(entry)
+                replaced = True
+                break
+        if not replaced:
+            self.known_servers.append(entry)
+        _save_known_servers(self.known_path, self.known_servers)
+        self._set_status("Saved server entry.")
+        self._close_dialog()
+        self.refresh()
+
+    def _delete_selected(self):
+        if self.selected_index is None or self.selected_index >= len(self.servers):
+            self._set_status("Select a server to delete.")
+            return
+        entry = self.servers[self.selected_index]
+        if not entry.get("manual"):
+            self._set_status("Only saved servers can be deleted.")
+            return
+        host = entry.get("saved_host") or entry.get("host")
+        port = int(entry.get("saved_port") or entry.get("port") or self.default_port)
+        before = len(self.known_servers)
+        self.known_servers = [
+            s for s in self.known_servers
+            if not (s.get("host") == host and int(s.get("port", 0) or self.default_port) == port)
+        ]
+        if len(self.known_servers) == before:
+            self._set_status("Server not found in saved list.")
+            return
+        _save_known_servers(self.known_path, self.known_servers)
+        self._set_status("Removed saved server.")
+        self.selected_index = None
+        self.selected_key = None
+        self.selected_server = None
+        self.refresh()
+
+    def _format_entry(self, entry: Dict[str, Any]) -> str:
+        status = "ONLINE" if entry.get("online") else "OFFLINE"
+        stats = entry.get("info", {}) or {}
+        players = stats.get("players", {}) if isinstance(stats, dict) else {}
+        total = players.get("total")
+        max_p = players.get("max")
+        humans = players.get("humans")
+        bots = players.get("bots")
+        parts = []
+        if total is not None and max_p:
+            parts.append(f"Players: {total}/{max_p}")
+        elif total is not None:
+            parts.append(f"Players: {total}")
+        if humans is not None:
+            parts.append(f"{humans} human")
+        if bots:
+            parts.append(f"{bots} bot")
+        players_line = ", ".join(parts) if parts else "Players: ?"
+        match = stats.get("match", {}) if isinstance(stats, dict) else {}
+        caps = match.get("captures", {}) if isinstance(match, dict) else {}
+        cap_line = f"Caps R:{caps.get('red', 0)} B:{caps.get('blue', 0)}"
+        if caps.get("to_win"):
+            cap_line += f" / {caps.get('to_win')}"
+        uptime = stats.get("uptime")
+        uptime_line = f"Uptime {self._format_uptime(uptime)}" if uptime is not None else "Uptime ?"
+        source_key = entry.get("source", "LAN")
+        if source_key == "manual_offline":
+            source = "Saved"
+        elif source_key == "manual":
+            source = "Saved"
+        elif source_key == "saved+lan":
+            source = "Saved+LAN"
+        else:
+            source = "LAN"
+        return (
+            f"{entry.get('name', 'Server')} [{status}]\n"
+            f"{entry.get('host', '?')}:{entry.get('port', '?')}  |  {players_line}\n"
+            f"{cap_line}  |  {uptime_line}  |  {source}"
+        )
+
+    def _format_uptime(self, seconds: Optional[float]) -> str:
+        if seconds is None:
+            return "?"
+        try:
+            seconds = int(seconds)
+        except Exception:
+            return "?"
+        if seconds < 60:
+            return f"{seconds}s"
+        minutes, sec = divmod(seconds, 60)
+        if minutes < 60:
+            return f"{minutes}m {sec}s"
+        hours, minutes = divmod(minutes, 60)
+        return f"{hours}h {minutes}m"
+
+    def cleanup(self):
+        try:
+            self.net_runner.shutdown()
+        except Exception:
+            pass
+        try:
+            self._close_dialog()
+        except Exception:
+            pass
 
 class NetworkClient:
     def __init__(self, cfg, name="Player", team_pref: str = "auto", spectator: bool = False):
@@ -2528,6 +3021,49 @@ class GameApp(ShowBase):
 
         future.add_done_callback(_after_connect)
 
+def _load_known_servers(path: str = KNOWN_SERVERS_FILE) -> List[Dict[str, Any]]:
+    try:
+        with open(path, "r") as f:
+            raw = json.load(f)
+    except Exception:
+        return []
+    servers = raw.get("servers") if isinstance(raw, dict) else raw
+    if not isinstance(servers, list):
+        return []
+    cleaned: List[Dict[str, Any]] = []
+    for item in servers:
+        if not isinstance(item, dict):
+            continue
+        host = str(item.get("host", "")).strip()
+        if not host:
+            continue
+        entry: Dict[str, Any] = {"host": host}
+        try:
+            entry["port"] = int(item.get("port", 0) or 0)
+        except Exception:
+            entry["port"] = 0
+        try:
+            entry["discovery_port"] = int(item.get("discovery_port", 0) or 0)
+        except Exception:
+            entry["discovery_port"] = 0
+        label = item.get("label")
+        if isinstance(label, str) and label.strip():
+            entry["label"] = label.strip()
+        if "added_at" in item:
+            entry["added_at"] = item.get("added_at")
+        cleaned.append(entry)
+    return cleaned
+
+
+def _save_known_servers(path: str, servers: List[Dict[str, Any]]):
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w") as f:
+            json.dump({"servers": servers}, f, indent=2)
+    except Exception as e:
+        print(f"[settings] failed to save known servers: {e}")
+
+
 def _load_client_state(path: str) -> Dict[str, Any]:
     try:
         with open(path, "r") as f:
@@ -2543,6 +3079,25 @@ def _save_client_state(path: str, state: Dict[str, Any]):
             json.dump(state, f, indent=2)
     except Exception as e:
         print(f"[settings] failed to save client state: {e}")
+
+
+def run_server_browser(cfg: Dict[str, Any], settings: Dict[str, Any], default_port: int) -> Optional[Dict[str, Any]]:
+    browser = ServerBrowserApp(cfg, settings, default_port=default_port, known_path=KNOWN_SERVERS_FILE)
+    try:
+        browser.run()
+    finally:
+        try:
+            browser.cleanup()
+        except Exception:
+            pass
+        try:
+            if hasattr(browser, "destroy"):
+                browser.destroy()
+        except Exception:
+            pass
+    if getattr(browser, "cancelled", True):
+        return None
+    return browser.selected_server
 
 
 def pick_server(settings: Dict[str, Any], shared_cfg: Dict[str, Any], skip_last: bool = False):
@@ -2652,6 +3207,22 @@ def main():
 
     # Choose server
     host, port = args.host, args.port
+    default_port = int(cfg.get("server", {}).get("port", 50007))
+    selection = None
+    if host is None or host == "":
+        try:
+            selection = run_server_browser(cfg, settings, default_port=default_port)
+        except Exception as e:
+            print(f"[browser] failed to open server browser: {e}")
+            selection = None
+        if selection:
+            host = selection.get("host") or host
+            sel_port = selection.get("port")
+            if sel_port is not None:
+                try:
+                    port = int(sel_port)
+                except Exception:
+                    port = sel_port
     if host is None or host == "":
         host2, port2 = pick_server(settings, cfg)
         host = host2 or host
@@ -2660,7 +3231,11 @@ def main():
             print("No server available. Provide --host/--port or enable discovery.")
             sys.exit(1)
     if not port:
-        port = cfg["server"]["port"]
+        port = default_port
+
+    manual_host_flag = (args.host is not None and args.host != "")
+    if selection and selection.get("manual"):
+        manual_host_flag = True
 
     # Interp delay: CLI overrides settings; only use settings if CLI default used
     if args.interp_delay == 0.10:
@@ -2678,7 +3253,7 @@ def main():
         interp_predict=args.interp_predict,
         settings=settings,
         team_pref=team_pref,
-        manual_host=(args.host is not None and args.host != ""),
+        manual_host=manual_host_flag,
         spectator=args.spectator,
     )
 

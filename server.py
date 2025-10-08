@@ -191,6 +191,40 @@ class LaserTagServer:
         self.combat_system.voxel_query = self._voxel_query
         self._init_flag_entities()
 
+    def get_public_stats(self) -> Dict[str, Any]:
+        """Return stats advertised to clients during discovery."""
+        players = list(self.gs.players.values())
+        total_players = len(players)
+        human_players = sum(1 for p in players if not getattr(p, 'is_bot', False))
+        bot_players = sum(1 for p in players if getattr(p, 'is_bot', False))
+        active_players = sum(1 for p in players if getattr(p, 'alive', False))
+        max_players = int(self.cfg.get('server', {}).get('max_players', MAX_PLAYERS))
+        captures_to_win = int(self.cfg.get('server', {}).get('captures_to_win', 0))
+        stats: Dict[str, Any] = {
+            'version': 1,
+            'uptime': max(0.0, now() - self.start_time),
+            'players': {
+                'total': total_players,
+                'humans': human_players,
+                'bots': bot_players,
+                'active': active_players,
+                'max': max_players,
+            },
+            'match': {
+                'in_progress': not bool(self.match_over),
+                'winner': self.winner,
+                'captures': {
+                    'red': int(self.team_captures.get(TEAM_RED, 0)),
+                    'blue': int(self.team_captures.get(TEAM_BLUE, 0)),
+                    'to_win': captures_to_win,
+                },
+            },
+        }
+        arena_size = self.cfg.get('gameplay', {}).get('arena_size_m')
+        if isinstance(arena_size, (list, tuple)):
+            stats['map'] = {'arena_size': [float(v) for v in arena_size[:2]]}
+        return stats
+
     # ---------- Physics world ----------
     def _attach_static_box(self, center: Tuple[float, float, float], size: Tuple[float, float, float], tag: str):
         hx, hy, hz = size[0]*0.5, size[1]*0.5, size[2]*0.5
@@ -1770,7 +1804,11 @@ async def main_async(args):
                 pass  # e.g., Windows
 
     disc_task  = asyncio.create_task(lan_discovery_server(
-        cfg["server"]["name"], cfg["server"]["port"], cfg["server"]["lan_discovery_port"]), name="discovery")
+        cfg["server"]["name"],
+        cfg["server"]["port"],
+        cfg["server"]["lan_discovery_port"],
+        server.get_public_stats,
+    ), name="discovery")
     bcast_task = asyncio.create_task(server._broadcast_loop(), name="broadcast")
     run_task   = asyncio.create_task(server.run(), name="game_loop")
 
