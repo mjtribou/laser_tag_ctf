@@ -469,6 +469,7 @@ class ServerBrowserApp(ShowBase):
         self._dialog_name: Optional[DirectEntry] = None
         self._dialog_host: Optional[DirectEntry] = None
         self._refresh_inflight = False
+        self._shutting_down = False
 
         self.net_runner = AsyncRunner()
         self._result_queue: "queue.Queue" = queue.Queue()
@@ -477,9 +478,12 @@ class ServerBrowserApp(ShowBase):
 
         self._build_ui()
         self.accept("escape", self._on_cancel)
-        self.taskMgr.add(self._poll_updates, "server_browser_poll")
+        self._poll_task = self.taskMgr.add(self._poll_updates, "server_browser_poll")
+        self._auto_refresh_task = None
         if self._auto_refresh_interval > 0:
-            self.taskMgr.doMethodLater(self._auto_refresh_interval, self._auto_refresh, "server_browser_auto_refresh")
+            self._auto_refresh_task = self.taskMgr.doMethodLater(
+                self._auto_refresh_interval, self._auto_refresh, "server_browser_auto_refresh"
+            )
         self.refresh(initial=True)
 
     # ------------------------------------------------------------------ ShowBase overrides
@@ -546,6 +550,8 @@ class ServerBrowserApp(ShowBase):
 
     # ------------------------------------------------------------------ Data refresh
     def refresh(self, initial: bool = False):
+        if self._shutting_down:
+            return
         if self._refresh_inflight:
             return
         self._refresh_inflight = True
@@ -743,6 +749,8 @@ class ServerBrowserApp(ShowBase):
             btn["frameColor"] = self._row_frame_color(i == idx)
 
     def _auto_refresh(self, task):
+        if self._shutting_down:
+            return task.done
         self.refresh()
         return task.again
 
@@ -753,11 +761,13 @@ class ServerBrowserApp(ShowBase):
             return
         self.selected_server = self.servers[self.selected_index]
         self.cancelled = False
+        self._shutting_down = True
         self.userExit()
 
     def _on_cancel(self):
         self.cancelled = True
         self.selected_server = None
+        self._shutting_down = True
         self.userExit()
 
     def _open_add_dialog(self):
@@ -904,6 +914,21 @@ class ServerBrowserApp(ShowBase):
         return f"{hours}h {minutes}m"
 
     def cleanup(self):
+        self._shutting_down = True
+        try:
+            if getattr(self, '_auto_refresh_task', None) is not None:
+                self.taskMgr.remove(self._auto_refresh_task)
+                self._auto_refresh_task = None
+            self.taskMgr.remove('server_browser_auto_refresh')
+        except Exception:
+            pass
+        try:
+            if getattr(self, '_poll_task', None) is not None:
+                self.taskMgr.remove(self._poll_task)
+                self._poll_task = None
+            self.taskMgr.remove('server_browser_poll')
+        except Exception:
+            pass
         try:
             self.net_runner.shutdown()
         except Exception:
