@@ -45,6 +45,19 @@ class LaserTagServer:
         self.gs = GameState()
         self.next_pid = 1
 
+        self.round_cfg = dict(self.cfg.get("rounds", {}))
+        self.rounds_enabled = bool(self.round_cfg.get("enabled", False))
+        self.round_seconds = float(self.round_cfg.get("round_seconds", 120.0))
+        self.post_capture_seconds = float(self.round_cfg.get("post_capture_seconds", 45.0))
+        self.round_start_delay = float(self.round_cfg.get("round_start_delay", 5.0))
+        default_to_win = int(self.cfg.get("server", {}).get("captures_to_win", 3))
+        self.rounds_to_win = int(self.round_cfg.get("rounds_to_win", default_to_win))
+        if self.rounds_enabled:
+            self.gs.rounds_to_win = self.rounds_to_win
+            self.gs.round_state = "intermission"
+            self.gs.next_round_time = now() + self.round_start_delay
+            self.gs.round_end_time = 0.0
+            self.gs.post_end_time = 0.0
         size_x, size_z = self.cfg["gameplay"]["arena_size_m"]
         cube_cfg = self.cfg.get("cubes", {})
         self.mapdata = generate(seed=42, size_x=size_x, size_z=size_z, cubes=cube_cfg)
@@ -328,7 +341,178 @@ class LaserTagServer:
         fl.x, fl.y, fl.z = x, y, max(0.0, z)
         fl.dropped_at_time = now()
 
+
+    def _reset_flags_to_home(self):
+        for team_flag, fl in self.gs.flags.items():
+            fl.carried_by = None
+            fl.at_base = True
+            fx, fy, fz = self._flag_home_pos(fl)
+            fl.x, fl.y, fl.z = fx, fy, fz
+            fl.dropped_at_time = 0.0
+        for p in self.gs.players.values():
+            try:
+                p.carrying_flag = None
+            except Exception:
+                pass
+
+    def _clear_corpses(self):
+        for pid in list(self._corpse_np.keys()):
+            self._remove_corpse(pid)
+
+    def _freeze_players(self):
+        for p in self.gs.players.values():
+            p.vx = 0.0
+            p.vy = 0.0
+            ch = self._char_node.get(p.pid)
+            if ch is not None:
+                try:
+                    ch.setLinearMovement(Vec3(0.0, 0.0, 0.0), True)
+                except Exception:
+                    pass
+
+    def _start_new_round(self):
+        if not self.rounds_enabled:
+            return
+        now_t = now()
+        self.gs.round_number += 1
+        self.gs.round_state = "round"
+        self.gs.round_end_time = now_t + self.round_seconds
+        self.gs.post_end_time = 0.0
+        self.gs.next_round_time = 0.0
+        self.gs.defending_team = None
+        self.gs.attacking_team = None
+        self.gs.last_round_winner = None
+        self.gs.last_round_reason = None
+        self._reset_flags_to_home()
+        self._clear_corpses()
+        for pid in list(self.gs.players.keys()):
+            self.respawn_player(pid)
+        try:
+            self.messagefeed.append({
+                "t": now_t,
+                "event": "round_start",
+                "round": self.gs.round_number,
+            })
+        except Exception:
+            pass
+
+    def _award_round(self, winner: Optional[int], reason: str):
+        if not self.rounds_enabled:
+            return
+        if self.gs.round_state not in ("round", "postcapture"):
+            return
+        now_t = now()
+        if winner is not None:
+            self.gs.teams[winner].rounds_won += 1
+            self.gs.last_round_winner = winner
+        else:
+            self.gs.last_round_winner = None
+        self.gs.last_round_reason = reason
+        if winner is not None and self.gs.teams[winner].rounds_won >= self.rounds_to_win:
+            self.gs.match_over = True
+            self.gs.winner = winner
+        self._reset_flags_to_home()
+        self._freeze_players()
+        self.gs.defending_team = None
+        self.gs.attacking_team = None
+        self.gs.round_end_time = 0.0
+        self.gs.post_end_time = 0.0
+        if self.gs.match_over:
+            self.gs.round_state = "match_over"
+            self.gs.next_round_time = 0.0
+        else:
+            self.gs.round_state = "intermission"
+            self.gs.next_round_time = now_t + self.round_start_delay
+        try:
+            evt = {
+                "t": now_t,
+                "event": "round_win" if winner is not None else "round_draw",
+                "round": self.gs.round_number,
+                "reason": reason,
+            }
+            if winner is not None:
+                evt["team"] = winner
+            self.messagefeed.append(evt)
+        except Exception:
+            pass
+
+    def _check_round_elimination(self):
+        if not self.rounds_enabled:
+            return
+        if self.gs.round_state not in ("round", "postcapture"):
+            return
+        red_alive = any(p.alive for p in self.gs.players.values() if p.team == TEAM_RED)
+        blue_alive = any(p.alive for p in self.gs.players.values() if p.team == TEAM_BLUE)
+        if red_alive and blue_alive:
+            return
+        if not red_alive and not blue_alive:
+            self._award_round(None, "elimination")
+        elif red_alive:
+            self._award_round(TEAM_RED, "elimination")
+        else:
+            self._award_round(TEAM_BLUE, "elimination")
+
+    def _enter_postcapture(self, player: Player, fl: Flag):
+        if not self.rounds_enabled:
+            return
+        self.gs.round_state = "postcapture"
+        self.gs.defending_team = player.team
+        self.gs.attacking_team = TEAM_BLUE if player.team == TEAM_RED else TEAM_RED
+        self.gs.post_end_time = now() + self.post_capture_seconds
+        self.gs.round_end_time = 0.0
+        fl.carried_by = None
+        fl.at_base = True
+        fx, fy, fz = self._flag_home_pos(fl)
+        fl.x, fl.y, fl.z = fx, fy, fz
+        fl.dropped_at_time = 0.0
+        try:
+            player.carrying_flag = None
+        except Exception:
+            pass
+        try:
+            self.messagefeed.append({
+                "t": now(),
+                "event": "flag_secured",
+                "actor": player.pid,
+                "actor_name": player.name,
+                "team": player.team,
+            })
+        except Exception:
+            pass
+
+    def _rounds_active_state(self) -> bool:
+        return self.rounds_enabled and self.gs.round_state in ("round", "postcapture")
+
+    def _update_round_logic(self):
+        if not self.rounds_enabled:
+            return
+        now_t = now()
+        state = self.gs.round_state
+        if state == "intermission":
+            if (not self.gs.match_over) and self.gs.next_round_time and now_t >= self.gs.next_round_time:
+                self._start_new_round()
+        elif state == "round":
+            if self.gs.round_end_time and now_t >= self.gs.round_end_time:
+                red_alive = any(p.alive for p in self.gs.players.values() if p.team == TEAM_RED)
+                blue_alive = any(p.alive for p in self.gs.players.values() if p.team == TEAM_BLUE)
+                if red_alive and not blue_alive:
+                    self._award_round(TEAM_RED, "time_expired")
+                elif blue_alive and not red_alive:
+                    self._award_round(TEAM_BLUE, "time_expired")
+                else:
+                    self._award_round(None, "time_expired")
+        elif state == "postcapture":
+            if self.gs.post_end_time and now_t >= self.gs.post_end_time:
+                defending = self.gs.defending_team
+                if defending is not None:
+                    self._award_round(defending, "defense_timer")
+                else:
+                    self._award_round(None, "defense_timer")
+        self._check_round_elimination()
+
     def _pickup_try(self, p: Player):
+        if self.rounds_enabled and not self._rounds_active_state():
+            return
         for team_flag, fl in self.gs.flags.items():
             # Returning own flag (legacy two-flag CTF) — not applicable for neutral flag
             if team_flag in (TEAM_RED, TEAM_BLUE) and team_flag == p.team:
@@ -343,6 +527,9 @@ class LaserTagServer:
 
             if fl.carried_by is not None:
                 continue
+            if self.rounds_enabled and self.gs.round_state == "postcapture" and team_flag == TEAM_NEUTRAL:
+                if p.team == self.gs.defending_team:
+                    continue
             if fl.at_base:
                 fx, fy, fz = self._flag_home_pos(fl)
             else:
@@ -357,6 +544,10 @@ class LaserTagServer:
                     p.carrying_flag = team_flag
                 except Exception:
                     pass
+                if self.rounds_enabled and self.gs.round_state == "postcapture" and team_flag == TEAM_NEUTRAL:
+                    if self.gs.attacking_team == p.team:
+                        self._award_round(p.team, "flag_recovered")
+                        return
                 # Log message feed: picked up flag
                 try:
                     self.messagefeed.append({
@@ -405,26 +596,30 @@ class LaserTagServer:
                     continue
                 bx, by, bz = (self.mapdata.red_base if p.team == TEAM_RED else self.mapdata.blue_base)
                 if math.hypot(p.x - bx, p.y - by) <= BASE_CAPTURE_RADIUS:
-                    self.gs.teams[p.team].captures += 1
-                    fl.carried_by = None
-                    p.captures += 1
-                    # Clear carrier flag
-                    p.carrying_flag = None
-                    # Return neutral flag to center
-                    fl.at_base = True
-                    fx, fy, fz = self._flag_home_pos(fl)
-                    fl.x, fl.y, fl.z = fx, fy, fz
-                    print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
-                    # Log message feed: capture
-                    try:
-                        self.messagefeed.append({
-                            "t": now(),
-                            "event": "capture",
-                            "actor": p.pid,
-                            "actor_name": p.name,
-                        })
-                    except Exception:
-                        pass
+                    if self.rounds_enabled:
+                        p.captures += 1
+                        self._enter_postcapture(p, fl)
+                    else:
+                        self.gs.teams[p.team].captures += 1
+                        fl.carried_by = None
+                        p.captures += 1
+                        # Clear carrier flag
+                        p.carrying_flag = None
+                        # Return neutral flag to center
+                        fl.at_base = True
+                        fx, fy, fz = self._flag_home_pos(fl)
+                        fl.x, fl.y, fl.z = fx, fy, fz
+                        print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
+                        # Log message feed: capture
+                        try:
+                            self.messagefeed.append({
+                                "t": now(),
+                                "event": "capture",
+                                "actor": p.pid,
+                                "actor_name": p.name,
+                            })
+                        except Exception:
+                            pass
                 continue
 
             # Legacy two-flag mode fallback
@@ -701,8 +896,25 @@ class LaserTagServer:
             return float(self.cfg["gameplay"]["walk_speed"])
         return float(self.cfg["gameplay"]["run_speed"])
 
+
+
+
     def process_input(self, p: Player, inp: Dict[str, Any], dt: float):
+        p.yaw_rad = wrap_pi(deg_to_rad(float(inp.get("yaw", rad_to_deg(p.yaw_rad)))))
+        p.pitch_rad = wrap_pi(deg_to_rad(float(inp.get("pitch", rad_to_deg(p.pitch_rad)))))
+
         if not p.alive:
+            return
+
+        if self.rounds_enabled and not self._rounds_active_state():
+            p.walking = False
+            p.crouching = False
+            ch = self._char_node.get(p.pid)
+            if ch is not None:
+                try:
+                    ch.setLinearMovement(Vec3(0.0, 0.0, 0.0), True)
+                except Exception:
+                    pass
             return
 
         shots_per_mag = int(self.cfg["gameplay"].get("shots_per_mag", 20))
@@ -710,9 +922,6 @@ class LaserTagServer:
         now_t = now()
         if p.shots_remaining <= 0 and now_t >= p.reload_end:
             p.shots_remaining = shots_per_mag
-
-        p.yaw_rad = wrap_pi(deg_to_rad(float(inp.get("yaw", rad_to_deg(p.yaw_rad)))))
-        p.pitch_rad = wrap_pi(deg_to_rad(float(inp.get("pitch", rad_to_deg(p.pitch_rad)))))
 
         walk = bool(inp.get("walk", False))
         crouch = bool(inp.get("crouch", False))
@@ -855,7 +1064,10 @@ class LaserTagServer:
 
         # Mark dead + schedule respawn (unchanged)
         v.alive = False
-        v.respawn_at = now() + float(self.cfg["server"]["respawn_seconds"])
+        if self.rounds_enabled:
+            v.respawn_at = 0.0
+        else:
+            v.respawn_at = now() + float(self.cfg["server"]["respawn_seconds"])
 
         # --- Killfeed (unchanged) ---
         try:
@@ -973,6 +1185,9 @@ class LaserTagServer:
                 random.uniform(-spin, spin)
             ))
 
+        if self.rounds_enabled:
+            self._check_round_elimination()
+
     def _auto_unstick(self, dt: float):
         for pid, p in self.gs.players.items():
             if not p.alive:
@@ -1062,6 +1277,8 @@ class LaserTagServer:
                     npa, npb = self._char_np[pa.pid], self._char_np[pb.pid]
                     npa.setPos(npa.getX() - ux * push, npa.getY() - uy * push, npa.getZ())
                     npb.setPos(npb.getX() + ux * push, npb.getY() + uy * push, npb.getZ())
+        if self.rounds_enabled:
+            self._check_round_elimination()
 
     def _remove_corpse(self, pid: int):
         rb = self._corpse_node.pop(pid, None)
@@ -1147,6 +1364,20 @@ class LaserTagServer:
         # message feed (flag events etc.)
         messages = [m for m in self.messagefeed if (now_t - float(m.get("t", 0.0))) <= ttl]
         messages = messages[-kmax:]
+        rounds_payload = None
+        if self.rounds_enabled:
+            rounds_payload = {
+                "state": self.gs.round_state,
+                "round": self.gs.round_number,
+                "rounds_to_win": self.gs.rounds_to_win,
+                "timer": max(0.0, self.gs.round_end_time - now_t) if self.gs.round_state == "round" else 0.0,
+                "post_timer": max(0.0, self.gs.post_end_time - now_t) if self.gs.round_state == "postcapture" else 0.0,
+                "intermission": max(0.0, self.gs.next_round_time - now_t) if (self.gs.round_state == "intermission" and not self.gs.match_over) else 0.0,
+                "attacking": self.gs.attacking_team,
+                "defending": self.gs.defending_team,
+                "last_winner": self.gs.last_round_winner,
+                "last_reason": self.gs.last_round_reason,
+            }
 
         return {
             "type": "state",
@@ -1155,13 +1386,14 @@ class LaserTagServer:
             "flags": flags,
             "grenades": grenades,
             "explosions": explosions,
-            "teams": {TEAM_RED: {"captures": self.gs.teams[TEAM_RED].captures},
-                      TEAM_BLUE: {"captures": self.gs.teams[TEAM_BLUE].captures}},
+            "teams": {TEAM_RED: {"captures": self.gs.teams[TEAM_RED].captures, "rounds": self.gs.teams[TEAM_RED].rounds_won if self.rounds_enabled else None},
+                      TEAM_BLUE: {"captures": self.gs.teams[TEAM_BLUE].captures, "rounds": self.gs.teams[TEAM_BLUE].rounds_won if self.rounds_enabled else None}},
             "match_over": self.gs.match_over,
             "winner": self.gs.winner,
             "beams": self.recent_beams,
             "killfeed": feed,
             "messages": messages,
+            "rounds": rounds_payload,
         }
 
     # ---------- Networking ----------
@@ -1281,6 +1513,8 @@ class LaserTagServer:
         while True:
             t0 = now()
 
+            self._update_round_logic()
+
             # Bots
             self._update_bots()
 
@@ -1310,9 +1544,10 @@ class LaserTagServer:
                 self._pickup_try(p)
 
             # Respawns
-            for pid, p in list(self.gs.players.items()):
-                if (not p.alive) and now() >= p.respawn_at:
-                    self.respawn_player(pid)
+            if not self.rounds_enabled:
+                for pid, p in list(self.gs.players.items()):
+                    if (not p.alive) and now() >= p.respawn_at:
+                        self.respawn_player(pid)
 
             # Safety kill-plane: if anyone somehow gets below the world, respawn them
             kill_z = -10.0

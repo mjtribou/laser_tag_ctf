@@ -242,5 +242,12 @@
     "anchors": {
       "head_z": 0.5
     }
+  },
+  "rounds": {
+    "enabled": false,
+    "round_seconds": 120,
+    "post_capture_seconds": 45,
+    "round_start_delay": 5,
+    "rounds_to_win": 7
   }
 }

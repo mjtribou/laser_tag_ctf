@@ -49,6 +49,7 @@ class Flag:
 @dataclass
 class TeamState:
     captures: int = 0
+    rounds_won: int = 0
 
 @dataclass
 class GameState:
@@ -58,4 +59,14 @@ class GameState:
     match_over: bool = False
     winner: Optional[int] = None
     start_time: float = field(default_factory=time.time)
+    rounds_to_win: int = 0
+    round_number: int = 0
+    round_state: str = "warmup"
+    round_end_time: float = 0.0
+    post_end_time: float = 0.0
+    next_round_time: float = 0.0
+    defending_team: Optional[int] = None
+    attacking_team: Optional[int] = None
+    last_round_winner: Optional[int] = None
+    last_round_reason: Optional[str] = None
     

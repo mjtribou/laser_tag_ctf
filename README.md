@@ -5,7 +5,8 @@
 
 ## Features implemented (MVP)
 - Panda3D renderer, Bullet world scaffold
-- Authoritative server (`server.py`) runs game loop, flags (pickup/drop/auto‑return), captures (win at 3), 3s respawn
+- Authoritative server (`server.py`) runs game loop, flags (pickup/drop/auto-return), captures (win at 3), 3s respawn
+- Optional Counter-Strike style round mode with neutral flag, no mid-round respawns, plant/defuse-style defense timer, and configurable win target (`rounds.*` in config)
 - Default game mode: single center‑flag CTF (neutral flag spawns at arena center; either team can capture by returning it to their base)
 - Hitscan lasers with server‑side validation, recoil accumulation, accuracy penalties while moving; crouch improves accuracy
 - Basic 5v5 via **bot fill** (dumb patrol/engage behavior) + human players
