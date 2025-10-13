@@ -37,6 +37,7 @@ class SnapshotBuilder:
         match_over: bool,
         winner: Optional[int],
         corpse_angles: Dict[int, Tuple[float, float, float]],
+        rounds: Optional[Dict[str, Any]] = None,
         bot_debug: Optional[Dict[int, Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         players = self._collect_players(now_t, corpse_angles)
@@ -57,6 +58,8 @@ class SnapshotBuilder:
             "killfeed": list(killfeed),
             "messages": list(messages),
         }
+        if rounds is not None:
+            snapshot["rounds"] = rounds
         if bot_debug:
             snapshot["bot_debug"] = {
                 str(pid): data for pid, data in bot_debug.items()

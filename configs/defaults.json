@@ -9,6 +9,13 @@
     "respawn_seconds": 1,
     "flag_return_seconds": 10,
     "friendly_fire": false,
+    "rounds": {
+      "enabled": false,
+      "to_win": 3,
+      "hold_seconds": 35.0,
+      "pickup_seconds": 5.0,
+      "setup_seconds": 5.0
+    },
     "bot": {
       "fill": true,
       "per_team_target": 5,
