@@ -2290,7 +2290,7 @@ class GameApp(ShowBase):
         if not isinstance(rounds, dict) or not rounds.get('enabled'):
             self.round_timer_text.setText("")
             self.round_phase_text.setText("")
-            self.round_timer_text.setTextColor(*self._round_timer_base_color)
+            self.round_timer_text.setColor(*self._round_timer_base_color)
             return
 
         phase = str(rounds.get('phase') or '')
@@ -2316,11 +2316,11 @@ class GameApp(ShowBase):
             timer_text = self._format_round_timer(seconds)
             warn = phase in {'neutral', 'secured'} and seconds <= 10.0
             color = self._round_timer_warn_color if warn else self._round_timer_base_color
-            self.round_timer_text.setTextColor(*color)
+            self.round_timer_text.setColor(*color)
             self.round_timer_text.setText(timer_text)
         else:
             self.round_timer_text.setText("")
-            self.round_timer_text.setTextColor(*self._round_timer_base_color)
+            self.round_timer_text.setColor(*self._round_timer_base_color)
 
         if phase == 'complete':
             phase_text = 'Match Complete'
