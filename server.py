@@ -1,7 +1,7 @@
 # server.py — Authoritative server with Bullet physics (players, block-built world, obstacles),
 # Bullet ray tests for lasers, safe-spawn, auto-unstick, and shared solid collide-mask fix.
-import asyncio, json, math, time, random, argparse, signal
-from typing import Dict, Any, List, Tuple, Optional, Set
+import asyncio, json, math, time, random, argparse, signal, importlib
+from typing import Dict, Any, List, Tuple, Optional, Set, Type
 from bisect import bisect_right
 
 from common.net import read_json, send_json, lan_discovery_server
@@ -37,6 +37,7 @@ from game.ecs import (
 )
 from game.ecs.replication import SnapshotBuilder
 from game.ecs.views import GameStateView, PlayerView, FlagView, TeamView
+from game.modes import GameMode, NeutralFlagGameMode, RoundNeutralFlagGameMode
 
 # --- Panda3D / Bullet (headless) ---
 from panda3d.core import Vec3, Point3, NodePath, BitMask32, LPoint3
@@ -120,24 +121,8 @@ class LaserTagServer:
             TEAM_RED: TeamView(self.team_captures, TEAM_RED),
             TEAM_BLUE: TeamView(self.team_captures, TEAM_BLUE),
         }
-        rounds_cfg = dict(self.cfg.get("server", {}).get("rounds", {}))
-        captures_goal = int(self.cfg.get("server", {}).get("captures_to_win", 3))
-        self.rounds_enabled: bool = bool(rounds_cfg.get("enabled", False))
-        self.rounds_to_win: int = int(rounds_cfg.get("to_win", captures_goal))
-        self.round_hold_seconds: float = float(rounds_cfg.get("hold_seconds", 35.0))
-        self.round_pickup_seconds: float = float(rounds_cfg.get("pickup_seconds", 5.0))
-        self.round_setup_seconds: float = float(rounds_cfg.get("setup_seconds", 5.0))
-        if self.rounds_enabled:
-            self.cfg.setdefault("server", {})["captures_to_win"] = self.rounds_to_win
-        self.round_index: int = 0
-        self.round_phase: str = "intermission" if self.rounds_enabled else "classic"
-        self.round_defender: Optional[int] = None
-        self.round_attacker: Optional[int] = None
-        self.round_hold_until: float = 0.0
-        self.round_secure_started: float = 0.0
-        self.round_pickup_progress: float = 0.0
-        self._round_pickup_contenders: Set[int] = set()
-        self._round_next_start_at: float = now() + max(0.0, self.round_setup_seconds) if self.rounds_enabled else 0.0
+        server_cfg = self.cfg.setdefault("server", {})
+        self.game_mode: GameMode = self._create_game_mode(server_cfg)
         self.match_over: bool = False
         self.winner: Optional[int] = None
         self.start_time: float = now()
@@ -208,8 +193,32 @@ class LaserTagServer:
         self._build_static_world()
         self.combat_system.voxel_query = self._voxel_query
         self._init_flag_entities()
-        if self.rounds_enabled:
-            self._round_schedule_intermission(self.round_setup_seconds)
+        self.game_mode.setup()
+
+    def _create_game_mode(self, server_cfg: Dict[str, Any]) -> GameMode:
+        mode_spec = server_cfg.get("game_mode")
+        mode_cls: Type[GameMode]
+        if isinstance(mode_spec, str) and mode_spec.strip():
+            mode_cls = self._resolve_game_mode_class(mode_spec.strip())
+        elif bool(server_cfg.get("rounds", {}).get("enabled", False)):
+            mode_cls = RoundNeutralFlagGameMode
+        else:
+            mode_cls = NeutralFlagGameMode
+        return mode_cls(self, server_cfg)
+
+    def _resolve_game_mode_class(self, spec: str) -> Type[GameMode]:
+        if ":" in spec:
+            module_name, class_name = spec.split(":", 1)
+        else:
+            parts = spec.rsplit(".", 1)
+            if len(parts) != 2:
+                raise ValueError(f"Invalid game_mode specification '{spec}'")
+            module_name, class_name = parts
+        module = importlib.import_module(module_name)
+        cls = getattr(module, class_name)
+        if not isinstance(cls, type) or not issubclass(cls, GameMode):
+            raise TypeError(f"Game mode '{spec}' is not a GameMode subclass")
+        return cls
 
     def get_public_stats(self) -> Dict[str, Any]:
         """Return stats advertised to clients during discovery."""
@@ -220,8 +229,9 @@ class LaserTagServer:
         active_players = sum(1 for p in players if getattr(p, 'alive', False))
         max_players = int(self.cfg.get('server', {}).get('max_players', MAX_PLAYERS))
         captures_to_win = int(self.cfg.get('server', {}).get('captures_to_win', 0))
-        if self.rounds_enabled:
-            captures_to_win = self.rounds_to_win
+        rounds_info = self.game_mode.snapshot(now())
+        if rounds_info:
+            captures_to_win = int(rounds_info.get('to_win', captures_to_win) or captures_to_win)
         stats: Dict[str, Any] = {
             'version': 1,
             'uptime': max(0.0, now() - self.start_time),
@@ -242,12 +252,12 @@ class LaserTagServer:
                 },
             },
         }
-        if self.rounds_enabled:
+        if rounds_info and rounds_info.get('enabled'):
             stats['match']['rounds'] = {
                 'red': int(self.team_captures.get(TEAM_RED, 0)),
                 'blue': int(self.team_captures.get(TEAM_BLUE, 0)),
-                'to_win': int(self.rounds_to_win),
-                'phase': self.round_phase,
+                'to_win': int(rounds_info.get('to_win', captures_to_win)),
+                'phase': rounds_info.get('phase'),
             }
         arena_size = self.cfg.get('gameplay', {}).get('arena_size_m')
         if isinstance(arena_size, (list, tuple)):
@@ -545,204 +555,6 @@ class LaserTagServer:
             self.flag_views[team] = FlagView(entity=entity, state=state, position=pos)
 
     # ---------- Rounds mode ----------
-    def _round_reset_flag_position(self) -> None:
-        fl = self.gs.flags.get(TEAM_NEUTRAL)
-        if fl is None:
-            return
-        fx, fy, fz = self._flag_home_pos(fl)
-        fl.carried_by = None
-        fl.at_base = True
-        fl.x, fl.y, fl.z = fx, fy, fz
-        fl.dropped_at_time = 0.0
-        for p in self.gs.players.values():
-            try:
-                if getattr(p, "carrying_flag", None) == TEAM_NEUTRAL:
-                    p.carrying_flag = None
-            except Exception:
-                pass
-
-    def _round_schedule_intermission(self, delay: float) -> None:
-        if not self.rounds_enabled:
-            return
-        self.round_phase = "intermission"
-        self.round_defender = None
-        self.round_attacker = None
-        self.round_hold_until = 0.0
-        self.round_secure_started = 0.0
-        self.round_pickup_progress = 0.0
-        self._round_pickup_contenders.clear()
-        self._round_next_start_at = now() + max(0.0, delay)
-        self._round_reset_flag_position()
-
-    def _round_begin_round(self) -> None:
-        if not self.rounds_enabled or self.match_over:
-            return
-        self.round_index += 1
-        self.round_phase = "neutral"
-        self.round_defender = None
-        self.round_attacker = None
-        self.round_hold_until = 0.0
-        self.round_secure_started = now()
-        self.round_pickup_progress = 0.0
-        self._round_pickup_contenders.clear()
-        self._round_reset_flag_position()
-        for pid in list(self.gs.players.keys()):
-            self.respawn_player(pid)
-        self._round_next_start_at = 0.0
-        try:
-            self.messagefeed.append({"t": now(), "event": "round_start", "round": self.round_index})
-        except Exception:
-            pass
-        print(f"[round] starting round {self.round_index}")
-
-    def _round_pre_tick(self) -> None:
-        if not self.rounds_enabled or self.match_over:
-            return
-        if self.round_phase == "intermission" and now() >= self._round_next_start_at:
-            self._round_begin_round()
-        self._round_pickup_contenders.clear()
-
-    def _round_respawns_locked(self) -> bool:
-        if not self.rounds_enabled:
-            return False
-        return self.round_phase in {"neutral", "secured", "intermission"}
-
-    def _round_register_pickup_attempt(self, player: PlayerView) -> None:
-        if not self.rounds_enabled:
-            return
-        if player.team != self.round_attacker or not player.alive:
-            return
-        self._round_pickup_contenders.add(player.pid)
-
-    def _round_update_pickup_progress(self, dt: float) -> None:
-        if not self.rounds_enabled:
-            return
-        if self.round_phase != "secured":
-            self._round_pickup_contenders.clear()
-            return
-        alive_attackers = [
-            pid for pid in self._round_pickup_contenders
-            if self.gs.players.get(pid) and self.gs.players[pid].alive
-        ]
-        if alive_attackers:
-            base_time = max(0.1, self.round_pickup_seconds)
-            self.round_pickup_progress += dt * len(alive_attackers) / base_time
-            if self.round_pickup_progress >= 1.0:
-                self._round_award(self.round_attacker, "recovered")
-        else:
-            if self.round_pickup_progress > 0.0:
-                self.round_pickup_progress = 0.0
-        self._round_pickup_contenders.clear()
-
-    def _round_flag_secured(self, team: int, flag: FlagView, carrier: PlayerView) -> None:
-        if not self.rounds_enabled or self.round_phase != "neutral":
-            return
-        self.round_defender = team
-        self.round_attacker = TEAM_BLUE if team == TEAM_RED else TEAM_RED
-        self.round_phase = "secured"
-        self.round_secure_started = now()
-        self.round_hold_until = self.round_secure_started + max(0.0, self.round_hold_seconds)
-        self.round_pickup_progress = 0.0
-        self._round_pickup_contenders.clear()
-        pedestal = self.mapdata.red_flag_stand if team == TEAM_RED else self.mapdata.blue_flag_stand
-        flag.carried_by = None
-        flag.at_base = True
-        flag.x, flag.y, flag.z = pedestal
-        flag.dropped_at_time = 0.0
-        try:
-            carrier.carrying_flag = None
-        except Exception:
-            pass
-        print(f"[round] Team {'RED' if team==TEAM_RED else 'BLUE'} secured the flag")
-        try:
-            self.messagefeed.append({"t": now(), "event": "flag_secured", "team": team})
-        except Exception:
-            pass
-
-    def _round_check_neutral_capture(self) -> None:
-        if not self.rounds_enabled or self.round_phase != "neutral":
-            return
-        fl = self.gs.flags.get(TEAM_NEUTRAL)
-        if fl is None:
-            return
-        carrier_pid = fl.carried_by
-        if carrier_pid is None:
-            return
-        carrier = self.gs.players.get(carrier_pid)
-        if carrier is None or not carrier.alive:
-            return
-        bx, by, bz = self.mapdata.red_base if carrier.team == TEAM_RED else self.mapdata.blue_base
-        if math.hypot(carrier.x - bx, carrier.y - by) <= BASE_CAPTURE_RADIUS:
-            self._round_flag_secured(carrier.team, fl, carrier)
-
-    def _round_check_elimination(self) -> None:
-        if not self.rounds_enabled or self.round_phase not in {"neutral", "secured"}:
-            return
-        red_alive = any(p.alive for p in self.gs.players.values() if p.team == TEAM_RED)
-        blue_alive = any(p.alive for p in self.gs.players.values() if p.team == TEAM_BLUE)
-        if red_alive and blue_alive:
-            return
-        if red_alive and not blue_alive:
-            self._round_award(TEAM_RED, "elimination")
-        elif blue_alive and not red_alive:
-            self._round_award(TEAM_BLUE, "elimination")
-
-    def _round_check_objectives(self) -> None:
-        if not self.rounds_enabled or self.match_over:
-            return
-        if self.round_phase == "secured" and self.round_hold_until > 0.0 and now() >= self.round_hold_until:
-            self._round_award(self.round_defender, "hold")
-        self._round_check_elimination()
-
-    def _round_award(self, team: Optional[int], reason: str) -> None:
-        if not self.rounds_enabled or team is None:
-            return
-        if self.match_over or self.round_phase == "complete":
-            return
-        current = self.team_captures.get(team, 0)
-        self.team_captures[team] = current + 1
-        self.round_hold_until = 0.0
-        self.round_pickup_progress = 0.0
-        self._round_pickup_contenders.clear()
-        try:
-            self.messagefeed.append({"t": now(), "event": "round_win", "team": team, "reason": reason})
-        except Exception:
-            pass
-        print(f"[round] Team {'RED' if team==TEAM_RED else 'BLUE'} wins round {self.round_index} ({reason}) -> {self.team_captures[team]}")
-        if self.team_captures[team] >= self.rounds_to_win:
-            self.match_over = True
-            self.winner = team
-            self.round_phase = "complete"
-            self._round_next_start_at = float('inf')
-            self._round_reset_flag_position()
-        else:
-            self._round_schedule_intermission(self.round_setup_seconds)
-
-    def _round_snapshot(self, now_t: float) -> Optional[Dict[str, Any]]:
-        if not self.rounds_enabled:
-            return None
-        wins = {
-            TEAM_RED: int(self.team_captures.get(TEAM_RED, 0)),
-            TEAM_BLUE: int(self.team_captures.get(TEAM_BLUE, 0)),
-        }
-        hold_remaining = 0.0
-        pickup = 0.0
-        if self.round_phase == "secured":
-            if self.round_hold_until > 0.0:
-                hold_remaining = max(0.0, self.round_hold_until - now_t)
-            pickup = max(0.0, min(1.0, self.round_pickup_progress))
-        return {
-            "enabled": True,
-            "current": int(self.round_index),
-            "phase": self.round_phase,
-            "defender": self.round_defender,
-            "attacker": self.round_attacker,
-            "hold_remaining": hold_remaining,
-            "pickup_progress": pickup,
-            "to_win": int(self.rounds_to_win),
-            "wins": wins,
-        }
-
     # ---------- Players / bots ----------
     def assign_spawn(self, team: int) -> Tuple[float, float, float, float]:
         base = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
@@ -969,11 +781,7 @@ class LaserTagServer:
 
             if fl.carried_by is not None:
                 continue
-            if self.rounds_enabled and team_flag == TEAM_NEUTRAL and self.round_phase == "secured":
-                fx, fy, fz = fl.x, fl.y, fl.z
-                if p.team == self.round_attacker and p.alive:
-                    if math.hypot(p.x - fx, p.y - fy) <= FLAG_PICKUP_RADIUS:
-                        self._round_register_pickup_attempt(p)
+            if self.game_mode.handle_flag_touch(p, team_flag, fl):
                 continue
             if fl.at_base:
                 fx, fy, fz = self._flag_home_pos(fl)
@@ -1021,72 +829,7 @@ class LaserTagServer:
                     fl.x, fl.y, fl.z = fx, fy, fz
 
     def _check_captures(self):
-        if self.rounds_enabled:
-            self._round_check_neutral_capture()
-            return
-        to_win = int(self.cfg["server"]["captures_to_win"])
-        for team_id in (TEAM_RED, TEAM_BLUE):
-            if self.gs.teams[team_id].captures >= to_win:
-                self.gs.match_over = True
-                self.gs.winner = team_id
-
-        for pid, p in list(self.gs.players.items()):
-            if not p.alive:
-                continue
-            # Single-flag mode (neutral flag)
-            if len(self.gs.flags) == 1 and (TEAM_NEUTRAL in self.gs.flags):
-                fl = next(iter(self.gs.flags.values()))
-                if fl.carried_by != pid:
-                    continue
-                bx, by, bz = (self.mapdata.red_base if p.team == TEAM_RED else self.mapdata.blue_base)
-                if math.hypot(p.x - bx, p.y - by) <= BASE_CAPTURE_RADIUS:
-                    self.gs.teams[p.team].captures += 1
-                    fl.carried_by = None
-                    p.captures += 1
-                    # Clear carrier flag
-                    p.carrying_flag = None
-                    # Return neutral flag to center
-                    fl.at_base = True
-                    fx, fy, fz = self._flag_home_pos(fl)
-                    fl.x, fl.y, fl.z = fx, fy, fz
-                    print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
-                    # Log message feed: capture
-                    try:
-                        self.messagefeed.append({
-                            "t": now(),
-                            "event": "capture",
-                            "actor": p.pid,
-                            "actor_name": p.name,
-                        })
-                    except Exception:
-                        pass
-                continue
-
-            # Legacy two-flag mode fallback
-            enemy_flag_team = TEAM_BLUE if p.team == TEAM_RED else TEAM_RED
-            fl = self.gs.flags.get(enemy_flag_team)
-            if not fl or fl.carried_by != pid:
-                continue
-            bx, by, bz = (self.mapdata.red_base if p.team == TEAM_RED else self.mapdata.blue_base)
-            if math.hypot(p.x - bx, p.y - by) <= BASE_CAPTURE_RADIUS:
-                self.gs.teams[p.team].captures += 1
-                fl.carried_by = None
-                p.captures += 1
-                p.carrying_flag = None
-                fl.at_base = True
-                fx, fy, fz = self._flag_home_pos(fl)
-                fl.x, fl.y, fl.z = fx, fy, fz
-                print(f"[score] Team {'RED' if p.team==TEAM_RED else 'BLUE'} captured! -> {self.gs.teams[p.team].captures}")
-                # Log message feed: capture
-                try:
-                    self.messagefeed.append({
-                        "t": now(),
-                        "event": "capture",
-                        "actor": p.pid,
-                        "actor_name": p.name,
-                    })
-                except Exception:
-                    pass
+        self.game_mode.check_objectives()
 
     # ---------- Lag-comp history ----------
     def _record_history(self):
@@ -1465,7 +1208,7 @@ class LaserTagServer:
         death_time = now()
         respawn_delay = float(self.cfg["server"].get("respawn_seconds", 0.0))
         respawn_time = death_time + respawn_delay
-        if self.rounds_enabled and self._round_respawns_locked():
+        if self.game_mode.respawns_locked():
             respawn_time = float('inf')
         if health_comp:
             health_comp.alive = False
@@ -1774,7 +1517,7 @@ class LaserTagServer:
             match_over=self.match_over,
             winner=self.winner,
             corpse_angles=corpse_angles,
-            rounds=self._round_snapshot(now_t),
+            rounds=self.game_mode.snapshot(now_t),
             bot_debug=self.bot_debug,
         )
 
@@ -1976,8 +1719,7 @@ class LaserTagServer:
 
         while True:
             t0 = now()
-            if self.rounds_enabled:
-                self._round_pre_tick()
+            self.game_mode.pre_tick(t0)
 
             # Bots
             self._update_bots()
@@ -2020,11 +1762,10 @@ class LaserTagServer:
                 # Auto-pickup/return flags when close; no keypress required
                 self._pickup_try(p)
 
-            if self.rounds_enabled:
-                self._round_update_pickup_progress(tick_dt)
+            self.game_mode.after_flag_interactions(tick_dt)
 
             # Respawns
-            if not self._round_respawns_locked():
+            if not self.game_mode.respawns_locked():
                 for pid, p in list(self.gs.players.items()):
                     if (not p.alive) and now() >= p.respawn_at:
                         self.respawn_player(pid)
@@ -2037,8 +1778,6 @@ class LaserTagServer:
 
             # Win condition
             self._check_captures()
-            if self.rounds_enabled:
-                self._round_check_objectives()
 
             # Tick pacing
             await asyncio.sleep(max(0, tick_dt - (now() - t0)))
