@@ -35,6 +35,9 @@ class Scoreboard:
             return
         players = state.get("players", [])
         teams = state.get("teams", {})
+        rounds_state = state.get("rounds") or {}
+        rounds_enabled = bool(rounds_state.get("enabled"))
+        round_wins = rounds_state.get("wins", {})
         by_team = {TEAM_RED: [], TEAM_BLUE: []}
         for p in players:
             by_team.setdefault(p.get("team"), []).append(p)
@@ -46,8 +49,9 @@ class Scoreboard:
         header = OnscreenText(
             "Name", pos=(base_x, y), align=TextNode.ALeft, fg=(1, 1, 1, 1), scale=0.045
         )
+        stat_label = "Rnd" if rounds_enabled else "Cap"
         header_stats = OnscreenText(
-            "Ping  Tags  Outs  Cap  Def",
+            f"Ping  Tags  Outs  {stat_label}  Def",
             pos=(base_x + 0.6, y),
             align=TextNode.ALeft,
             fg=(1, 1, 1, 1),
@@ -59,7 +63,10 @@ class Scoreboard:
             tname = "RED" if team == TEAM_RED else "BLUE"
             # some JSON decoders may coerce int keys to strings; handle both
             tkey = team if team in teams else str(team)
+            round_key = team if team in round_wins else str(team)
             points = teams.get(tkey, {}).get("captures", 0)
+            if rounds_enabled:
+                points = round_wins.get(round_key, points)
             team_line = OnscreenText(
                 f"{tname} - {points}",
                 pos=(base_x, y),

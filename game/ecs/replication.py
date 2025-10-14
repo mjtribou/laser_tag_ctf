@@ -37,11 +37,16 @@ class SnapshotBuilder:
         match_over: bool,
         winner: Optional[int],
         corpse_angles: Dict[int, Tuple[float, float, float]],
+        rounds: Optional[Dict[str, Any]] = None,
         bot_debug: Optional[Dict[int, Dict[str, Any]]] = None,
+        teams_state: Optional[Dict[int, Dict[str, Any]]] = None,
+        hud: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         players = self._collect_players(now_t, corpse_angles)
         flags = self._collect_flags()
-        teams = {team_id: {"captures": captures} for team_id, captures in team_captures.items()}
+        teams = teams_state if teams_state is not None else {
+            team_id: {"captures": captures} for team_id, captures in team_captures.items()
+        }
 
         snapshot = {
             "type": "state",
@@ -57,6 +62,10 @@ class SnapshotBuilder:
             "killfeed": list(killfeed),
             "messages": list(messages),
         }
+        if rounds is not None:
+            snapshot["rounds"] = rounds
+        if hud is not None:
+            snapshot["hud"] = hud
         if bot_debug:
             snapshot["bot_debug"] = {
                 str(pid): data for pid, data in bot_debug.items()
