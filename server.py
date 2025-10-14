@@ -18,19 +18,13 @@ from game.ecs import (
     World as ECSWorld,
     CharacterBody,
     CollisionBody,
-    FlagCarrier,
     FlagState,
-    CombatSystem,
-    CollisionSystem,
     GrenadeRequest,
     Health,
     HitEvent,
     MovementState,
-    MovementSystem,
     Physics,
-    PlayerInfo,
     PlayerInput as ECSPlayerInput,
-    PlayerStats,
     Position,
     Projectile,
     Weapon,
@@ -116,13 +110,12 @@ class LaserTagServer:
         # Legacy views backed by ECS components
         self.player_views: Dict[int, PlayerView] = {}
         self.flag_views: Dict[int, FlagView] = {}
-        self.team_captures: Dict[int, int] = {TEAM_RED: 0, TEAM_BLUE: 0}
-        self.team_views: Dict[int, TeamView] = {
-            TEAM_RED: TeamView(self.team_captures, TEAM_RED),
-            TEAM_BLUE: TeamView(self.team_captures, TEAM_BLUE),
-        }
         server_cfg = self.cfg.setdefault("server", {})
         self.game_mode: GameMode = self._create_game_mode(server_cfg)
+        self.team_captures: Dict[int, int] = {int(team): 0 for team in self.game_mode.teams()}
+        self.team_views: Dict[int, TeamView] = {
+            int(team): TeamView(self.team_captures, int(team)) for team in self.game_mode.teams()
+        }
         self.match_over: bool = False
         self.winner: Optional[int] = None
         self.start_time: float = now()
@@ -176,22 +169,16 @@ class LaserTagServer:
         self._stuck_since: Dict[int, float] = {}
         self._last_safe_pos: Dict[int, Tuple[float,float,float]] = {}
 
-        # ECS systems – movement/combat/collision
-        self.movement_system = MovementSystem(self.ecs, self.cfg["gameplay"])
-        self.combat_system = CombatSystem(
-            self.ecs,
-            self.cfg["gameplay"],
-            self.cfg["server"],
-            self.world,
-            voxel_query=self._voxel_query,
-            now_fn=now,
-        )
-        self.collision_system = CollisionSystem(self.ecs, self.cfg["gameplay"])
-        self._pre_physics_systems = [self.movement_system, self.combat_system]
-        self._post_physics_systems = [self.movement_system, self.collision_system]
+        systems = self.game_mode.build_systems()
+        self.movement_system = systems.movement
+        self.combat_system = systems.combat
+        self.collision_system = systems.collision
+        self._pre_physics_systems = [sys for sys in systems.pre_physics if sys is not None]
+        self._post_physics_systems = [sys for sys in systems.post_physics if sys is not None]
 
         self._build_static_world()
-        self.combat_system.voxel_query = self._voxel_query
+        if self.combat_system is not None:
+            self.combat_system.voxel_query = self._voxel_query
         self._init_flag_entities()
         self.game_mode.setup()
 
@@ -557,99 +544,10 @@ class LaserTagServer:
     # ---------- Rounds mode ----------
     # ---------- Players / bots ----------
     def assign_spawn(self, team: int) -> Tuple[float, float, float, float]:
-        base = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
-        x, y, z = self._find_safe_spawn_near((base[0], base[1]))
-        yaw_rad = 0.0 if team == TEAM_RED else math.pi
-        return x, y, z, yaw_rad
+        return self.game_mode.spawn_location(team)
 
     def add_player(self, name: str, is_bot: bool = False) -> int:
-        red_ct = sum(1 for p in self.player_views.values() if p.team == TEAM_RED)
-        blue_ct = sum(1 for p in self.player_views.values() if p.team == TEAM_BLUE)
-        team = TEAM_RED if red_ct <= blue_ct else TEAM_BLUE
-
-        pid = self.next_pid
-        self.next_pid += 1
-
-        x, y, z, yaw_rad = self.assign_spawn(team)
-        shots_per_mag = int(self.cfg["gameplay"].get("shots_per_mag", 20))
-
-        entity = self.ecs.create_entity()
-        self.pid_to_entity[pid] = entity
-        self.entity_to_pid[entity] = pid
-
-        pos = Position(x=x, y=y, z=z, yaw=yaw_rad, pitch=0.0)
-        phys = Physics(vx=0.0, vy=0.0, vz=0.0, on_ground=True)
-        movement = MovementState()
-        inputs = ECSPlayerInput(yaw=math.degrees(yaw_rad), pitch=0.0)
-        info = PlayerInfo(pid=pid, name=name, team=team, is_bot=is_bot)
-        weapon = Weapon(
-            shots_remaining=shots_per_mag,
-            shots_per_mag=shots_per_mag,
-            reload_end=0.0,
-            last_fire_time=0.0,
-            cooldown=0.0,
-            spread_deg=float(self.cfg["gameplay"].get("base_spread_deg", 1.0)),
-            recoil_accum=0.0,
-        )
-        health = Health(hp=1, max_hp=1, alive=True, respawn_at=0.0)
-        stats = PlayerStats()
-        carrier = FlagCarrier(flag_team=None)
-
-        self.ecs.add_component(entity, pos)
-        self.ecs.add_component(entity, phys)
-        self.ecs.add_component(entity, movement)
-        self.ecs.add_component(entity, inputs)
-        self.ecs.add_component(entity, info)
-        self.ecs.add_component(entity, weapon)
-        self.ecs.add_component(entity, health)
-        self.ecs.add_component(entity, stats)
-        self.ecs.add_component(entity, carrier)
-
-        self.player_views[pid] = PlayerView(
-            pid=pid,
-            info=info,
-            position=pos,
-            physics=phys,
-            movement=movement,
-            weapon=weapon,
-            health=health,
-            stats=stats,
-            flag_carrier=carrier,
-        )
-
-        self._create_character(entity, pid, (x, y, z), yaw_rad)
-        self._last_safe_pos[pid] = (x, y, z)
-
-        if is_bot:
-            base_pos = self.mapdata.red_base if team == TEAM_RED else self.mapdata.blue_base
-            enemy_base = self.mapdata.blue_base if team == TEAM_RED else self.mapdata.red_base
-            from game.bot_ai import AStarBotBrain
-
-            bot_cfg = self.cfg.get("server", {}).get("bot", {})
-            target_players = bool(bot_cfg.get("target_players", True))
-            turn_cfg = bot_cfg.get("turn_rates", {})
-            idle_turn = float(turn_cfg.get("idle", 240.0))
-            engaged_turn = float(turn_cfg.get("engaged", 420.0))
-            engagement_range = float(bot_cfg.get("engagement_range_m", 40.0))
-            target_acquire_range = float(bot_cfg.get("target_acquire_range_m", max(engagement_range, 45.0)))
-            if target_acquire_range < engagement_range:
-                target_acquire_range = engagement_range
-
-            brain = AStarBotBrain(
-                team,
-                base_pos,
-                enemy_base,
-                target_players=target_players,
-                nav_graph=self.nav_graph,
-                idle_turn_rate_deg=idle_turn,
-                engaged_turn_rate_deg=engaged_turn,
-                engagement_range_m=engagement_range,
-                target_acquire_range_m=target_acquire_range,
-            )
-            self.bot_brains[pid] = brain
-
-        print(f"[join] pid={pid} name={name} team={'RED' if team==TEAM_RED else 'BLUE'}")
-        return pid
+        return self.game_mode.add_player(name, is_bot=is_bot)
 
     def remove_player(self, pid: int):
         if pid in self.clients:
@@ -677,77 +575,7 @@ class LaserTagServer:
             pass
 
     def respawn_player(self, pid: int):
-        p = self.gs.players.get(pid)
-        if not p:
-            return
-
-        # Remove any corpse body
-        self._remove_corpse(pid)
-
-        # Choose a safe spawn and reset state
-        x, y, z, yaw_rad = self.assign_spawn(p.team)
-        p.x, p.y, p.z = x, y, z
-        p.yaw_rad = yaw_rad
-        p.pitch_rad = 0.0
-        p.alive = True
-        p.respawn_at = 0.0
-        p.on_ground = True
-        p.crouching = False
-        p.walking = False
-        p.shots_remaining = int(self.cfg["gameplay"].get("shots_per_mag", 20))
-        p.reload_end = 0.0
-        p.recoil_accum = 0.0
-
-        entity = self.pid_to_entity.get(pid)
-        if entity is not None:
-            pos_comp = self.ecs.get_component(entity, Position)
-            if pos_comp:
-                pos_comp.x = x
-                pos_comp.y = y
-                pos_comp.z = z
-                pos_comp.yaw = yaw_rad
-                pos_comp.pitch = 0.0
-            phys_comp = self.ecs.get_component(entity, Physics)
-            if phys_comp:
-                phys_comp.vx = phys_comp.vy = phys_comp.vz = 0.0
-                phys_comp.on_ground = True
-            move_state = self.ecs.get_component(entity, MovementState)
-            if move_state:
-                move_state.walking = False
-                move_state.crouching = False
-            input_comp = self.ecs.get_component(entity, ECSPlayerInput)
-            if input_comp:
-                input_comp.yaw = math.degrees(yaw_rad)
-                input_comp.pitch = 0.0
-                input_comp.mx = 0.0
-                input_comp.mz = 0.0
-                input_comp.fire = False
-                input_comp.jump = False
-                input_comp.walk = False
-                input_comp.crouch = False
-            weapon_comp = self.ecs.get_component(entity, Weapon)
-            if weapon_comp:
-                weapon_comp.shots_remaining = weapon_comp.shots_per_mag
-                weapon_comp.reload_end = 0.0
-                weapon_comp.recoil_accum = 0.0
-            health_comp = self.ecs.get_component(entity, Health)
-            if health_comp:
-                health_comp.hp = max(1, health_comp.max_hp or 1)
-                health_comp.alive = True
-                health_comp.respawn_at = 0.0
-
-        self._last_safe_pos[pid] = (x, y, z)
-
-        # Recreate character controller if missing, else just move it
-        body = self.ecs.get_component(entity, CharacterBody) if entity is not None else None
-        if body is None or body.nodepath is None:
-            self._create_character(entity or self.ecs.create_entity(), pid, (x, y, z), yaw_rad)
-        else:
-            body.nodepath.setPos(x, y, z)
-            try:
-                body.controller.setLinearMovement(Vec3(0, 0, 0), False)
-            except Exception:
-                pass
+        self.game_mode.respawn_player(pid)
 
     # ---------- Game mechanics ----------
     def _flag_home_pos(self, fl: FlagView) -> Tuple[float, float, float]:
@@ -1519,6 +1347,8 @@ class LaserTagServer:
             corpse_angles=corpse_angles,
             rounds=self.game_mode.snapshot(now_t),
             bot_debug=self.bot_debug,
+            teams_state=self.game_mode.team_snapshot(),
+            hud=self.game_mode.hud_snapshot(now_t),
         )
 
         return snapshot
