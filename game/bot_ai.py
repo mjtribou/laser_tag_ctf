@@ -714,7 +714,39 @@ class AStarBotBrain:
         if not self._path or self._path_i >= len(self._path):
             return
         tx, ty = self._path[self._path_i]
-        if math.hypot(me_xy[0] - tx, me_xy[1] - ty) <= threshold:
+
+        # When navigating around sharp corners we want to make sure the bot fully
+        # reaches the corner node before advancing to the next waypoint. Otherwise
+        # it can start steering towards the next point too early and scrape
+        # against the corner, which is exactly what happens on ai_test.json's
+        # push lane. Detect large course changes and tighten the threshold.
+        if self._path_i + 1 < len(self._path):
+            nxt = self._path[self._path_i + 1]
+            prv = self._path[self._path_i - 1] if self._path_i - 1 >= 0 else None
+            if prv is not None:
+                vx0 = tx - prv[0]
+                vy0 = ty - prv[1]
+                vx1 = nxt[0] - tx
+                vy1 = nxt[1] - ty
+                len0 = math.hypot(vx0, vy0)
+                len1 = math.hypot(vx1, vy1)
+                if len0 > 1e-3 and len1 > 1e-3:
+                    dot = (vx0 * vx1 + vy0 * vy1) / (len0 * len1)
+                    if dot < 0.5:
+                        threshold = min(threshold, 0.35)
+        dist_to_target = math.hypot(me_xy[0] - tx, me_xy[1] - ty)
+        if dist_to_target <= threshold:
+            if self._path_i + 1 < len(self._path):
+                nxt = self._path[self._path_i + 1]
+                to_next = (nxt[0] - tx, nxt[1] - ty)
+                next_len = math.hypot(to_next[0], to_next[1])
+                if next_len > 1e-4:
+                    toward_next = (me_xy[0] - tx, me_xy[1] - ty)
+                    progress = (toward_next[0] * to_next[0] + toward_next[1] * to_next[1]) / next_len
+                    # Ensure we've started moving around the corner instead of
+                    # hugging the entry face; otherwise keep targeting the corner.
+                    if progress < -0.05:
+                        return
             self._path_i += 1
             self._last_progress_t = time.time()
 
@@ -722,7 +754,28 @@ class AStarBotBrain:
         if not self._path or self._path_i >= len(self._path):
             return None
         j = min(self._path_i + 1, len(self._path) - 1)
-        return self._path[j]
+        target = self._path[j]
+
+        # When approaching a sharp corner, aim slightly past the actual waypoint
+        # so that we don't nose directly into the seam formed by the two walls.
+        # This encourages the bot to round the corner cleanly before trying to
+        # accelerate down the lane.
+        if 0 < j < len(self._path) - 1:
+            prev_pt = self._path[j - 1]
+            next_pt = self._path[j + 1]
+            vin = (target[0] - prev_pt[0], target[1] - prev_pt[1])
+            vout = (next_pt[0] - target[0], next_pt[1] - target[1])
+            len_in = math.hypot(vin[0], vin[1])
+            len_out = math.hypot(vout[0], vout[1])
+            if len_in > 1e-4 and len_out > 1e-4:
+                dot = (vin[0] * vout[0] + vin[1] * vout[1]) / (len_in * len_out)
+                if dot < 0.35:
+                    advance = min(0.5, 0.4 * len_out)
+                    if advance > 1e-3:
+                        offset = (vout[0] / len_out * advance, vout[1] / len_out * advance)
+                        target = (target[0] + offset[0], target[1] + offset[1])
+
+        return target
 
     def _stalled(self, me_xy: Tuple[float, float]) -> bool:
         tgt = self._current_target()
