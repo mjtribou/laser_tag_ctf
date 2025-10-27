@@ -1325,6 +1325,24 @@ class GameApp(ShowBase):
                                  scale=self._kill_scale, max_items=self._kill_max, ttl=self._kill_ttl)
         self.msg_feed  = HudFeed(x=-1.25, y_start=0.92, align=TextNode.ALeft,
                                  scale=self._msg_scale, max_items=self._msg_max, ttl=self._msg_ttl)
+        self.round_timer_text = OnscreenText(
+            text="",
+            pos=(0.0, 0.9),
+            fg=(1, 1, 1, 1),
+            align=TextNode.ACenter,
+            scale=0.08,
+            mayChange=True,
+        )
+        self.round_phase_text = OnscreenText(
+            text="",
+            pos=(0.0, 0.82),
+            fg=(1, 1, 1, 1),
+            align=TextNode.ACenter,
+            scale=0.045,
+            mayChange=True,
+        )
+        self._round_timer_warn_color = (1.0, 0.35, 0.35, 1.0)
+        self._round_timer_base_color = (1.0, 1.0, 1.0, 1.0)
         # Message feed (top-left) — similar policy to killfeed
         self._msg_ttl   = float(hud_cfg.get("messagefeed_ttl", self._kill_ttl))
         self._msg_max   = int(hud_cfg.get("messagefeed_max", self._kill_max))
@@ -2234,6 +2252,95 @@ class GameApp(ShowBase):
         return dx, dy
 
 
+    def _coerce_team_value(self, value) -> Optional[int]:
+        if value is None:
+            return None
+        if isinstance(value, str):
+            stripped = value.strip().lower()
+            if stripped in ("", "none"):
+                return None
+            if stripped in (str(TEAM_RED), "red"):
+                return TEAM_RED
+            if stripped in (str(TEAM_BLUE), "blue"):
+                return TEAM_BLUE
+            try:
+                return int(stripped)
+            except ValueError:
+                return None
+        try:
+            return int(value)
+        except Exception:
+            return None
+
+    def _format_round_timer(self, seconds: float) -> str:
+        seconds = max(0.0, float(seconds))
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        if minutes > 0:
+            return f"{minutes}:{secs:02d}"
+        if seconds >= 10.0:
+            return f"{int(seconds):02d}"
+        tenths = int((seconds - secs) * 10)
+        tenths = max(0, min(9, tenths))
+        return f"{secs:02d}.{tenths}"
+
+    def _update_round_hud(self, snapshot: Optional[Dict[str, Any]]) -> None:
+        hud = snapshot.get('hud') if snapshot else None
+        rounds = hud.get('rounds') if isinstance(hud, dict) else None
+        if not isinstance(rounds, dict) or not rounds.get('enabled'):
+            self.round_timer_text.setText("")
+            self.round_phase_text.setText("")
+            self.round_timer_text.setColor(*self._round_timer_base_color)
+            return
+
+        phase = str(rounds.get('phase') or '')
+        round_no = rounds.get('round')
+        try:
+            round_no = int(round_no)
+        except Exception:
+            round_no = None
+
+        intermission_remaining = float(rounds.get('intermission_remaining', 0.0) or 0.0)
+        hold_remaining = float(rounds.get('hold_remaining', 0.0) or 0.0)
+        time_remaining = float(rounds.get('time_remaining', 0.0) or 0.0)
+
+        if phase == 'intermission':
+            seconds = intermission_remaining
+        elif phase == 'secured':
+            seconds = hold_remaining if hold_remaining > 0.0 else time_remaining
+        else:
+            seconds = time_remaining
+
+        show_timer = seconds > 0.0 and phase != 'complete'
+        if show_timer:
+            timer_text = self._format_round_timer(seconds)
+            warn = phase in {'neutral', 'secured'} and seconds <= 10.0
+            color = self._round_timer_warn_color if warn else self._round_timer_base_color
+            self.round_timer_text.setColor(*color)
+            self.round_timer_text.setText(timer_text)
+        else:
+            self.round_timer_text.setText("")
+            self.round_timer_text.setColor(*self._round_timer_base_color)
+
+        if phase == 'complete':
+            phase_text = 'Match Complete'
+        elif phase == 'intermission':
+            next_round = (round_no or 0) + 1
+            phase_text = f"Round {next_round} starting" if show_timer else ''
+        elif phase == 'neutral':
+            phase_text = f"Round {round_no}" if round_no else 'Round'
+        elif phase == 'secured':
+            defender = self._coerce_team_value(rounds.get('defender'))
+            if defender in (TEAM_RED, TEAM_BLUE):
+                label = 'RED' if defender == TEAM_RED else 'BLUE'
+                phase_text = f"{label} defending"
+            else:
+                phase_text = 'Flag secured'
+        else:
+            phase_text = phase.replace('_', ' ').title() if phase else ''
+
+        self.round_phase_text.setText(phase_text)
+
     def _apply_recoil(self):
         # Accumulate recoil into aim offsets (do not move the camera)
         # Apply a fixed vertical kick per shot. No yaw jitter by default.
@@ -2914,6 +3021,7 @@ class GameApp(ShowBase):
         if latest:
             # map pid -> team for coloring names
             pid_team = {p.get("pid"): p.get("team") for p in latest.get("players", [])}
+
             feed = latest.get("killfeed", [])
             for ev in feed:
                 key = (int(float(ev.get("t", 0.0)) * 1000), ev.get("attacker"), ev.get("victim"))
@@ -2949,10 +3057,49 @@ class GameApp(ShowBase):
                     parts = [(name, team), " dropped the flag"]
                 elif evt == 'capture':
                     parts = [(name, team), " captured the flag!"]
+                elif evt == 'flag_secured':
+                    team_id = self._coerce_team_value(ev.get('team'))
+                    if team_id in (TEAM_RED, TEAM_BLUE):
+                        label = 'RED' if team_id == TEAM_RED else 'BLUE'
+                        parts = ["Team ", (label, team_id), " secured the flag"]
+                    else:
+                        parts = ["Flag secured"]
+                elif evt == 'round_start':
+                    round_no = ev.get('round')
+                    try:
+                        round_no = int(round_no)
+                    except Exception:
+                        round_no = None
+                    if round_no and round_no > 0:
+                        parts = [f"Round {round_no} started"]
+                    else:
+                        parts = ["Round started"]
+                elif evt == 'round_win':
+                    team_id = self._coerce_team_value(ev.get('team'))
+                    if team_id in (TEAM_RED, TEAM_BLUE):
+                        label = 'RED' if team_id == TEAM_RED else 'BLUE'
+                        parts = [(label, team_id), " won the round"]
+                    else:
+                        parts = ["Round won"]
+                    reason = ev.get('reason')
+                    if reason:
+                        parts.append(f" ({reason})")
+                elif evt == 'round_draw':
+                    round_no = ev.get('round')
+                    try:
+                        round_no = int(round_no)
+                    except Exception:
+                        round_no = None
+                    if round_no and round_no > 0:
+                        parts = [f"Round {round_no} ended in a draw"]
+                    else:
+                        parts = ["Round ended in a draw"]
                 else:
                     parts = [(name, team), f" {evt}"]
                 norm = [(p, None) if isinstance(p, str) else p for p in parts]
                 self.msg_feed.add_parts(norm)
+
+        self._update_round_hud(latest)
 
         # expire old killfeed entries (no fade, simple TTL)
         nowt = time.time()
